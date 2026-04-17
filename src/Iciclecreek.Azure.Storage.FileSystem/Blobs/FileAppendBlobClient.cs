@@ -259,4 +259,10 @@ public class FileAppendBlobClient : AppendBlobClient
     /// <inheritdoc/>
     public new Task<Response<BlobInfo>> SealAsync(AppendBlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
         => NotSupported.Throw<Task<Response<BlobInfo>>>();
+
+    // ---- Remaining virtual properties ----
+    /// <inheritdoc/>
+    public override int AppendBlobMaxAppendBlockBytes => 4 * 1024 * 1024; // 4 MiB
+    /// <inheritdoc/>
+    public override int AppendBlobMaxBlocks => 50000;
 }

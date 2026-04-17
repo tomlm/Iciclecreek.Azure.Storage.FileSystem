@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using Azure;
 using Azure.Data.Tables;
 using Azure.Data.Tables.Models;
+using Azure.Data.Tables.Sas;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
 using Iciclecreek.Azure.Storage.FileSystem.Internal;
 using Iciclecreek.Azure.Storage.FileSystem.Tables.Internal;
@@ -337,4 +338,14 @@ public class FileTableClient : TableClient
     public override Response SetAccessPolicy(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default) => NotSupported.Throw<Response>();
     /// <inheritdoc/>
     public override Task<Response> SetAccessPolicyAsync(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+
+    // ---- Remaining virtual methods ----
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(TableSasPermissions permissions, DateTimeOffset expiresOn) => Uri;
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(TableSasBuilder builder) => Uri;
+    /// <inheritdoc/>
+    public override TableSasBuilder GetSasBuilder(TableSasPermissions permissions, DateTimeOffset expiresOn) => new TableSasBuilder(_store.TableName, permissions, expiresOn);
+    /// <inheritdoc/>
+    public override TableSasBuilder GetSasBuilder(string rawPermissions, DateTimeOffset expiresOn) => new TableSasBuilder(_store.TableName, rawPermissions, expiresOn);
 }

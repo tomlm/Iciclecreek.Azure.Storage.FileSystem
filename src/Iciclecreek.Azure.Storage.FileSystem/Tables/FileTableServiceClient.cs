@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using Azure;
 using Azure.Data.Tables;
 using Azure.Data.Tables.Models;
+using Azure.Data.Tables.Sas;
 using Iciclecreek.Azure.Storage.FileSystem.Blobs;
 using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
@@ -142,4 +143,14 @@ public class FileTableServiceClient : TableServiceClient
     public override Response<TableServiceStatistics> GetStatistics(CancellationToken ct = default) => NotSupported.Throw<Response<TableServiceStatistics>>();
     /// <inheritdoc/>
     public override Task<Response<TableServiceStatistics>> GetStatisticsAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<TableServiceStatistics>>>();
+
+    // ---- Remaining virtual methods ----
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => _account.TableServiceUri;
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(TableAccountSasBuilder builder) => _account.TableServiceUri;
+    /// <inheritdoc/>
+    public override TableAccountSasBuilder GetSasBuilder(TableAccountSasPermissions permissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => new TableAccountSasBuilder(permissions, resourceTypes, expiresOn);
+    /// <inheritdoc/>
+    public override TableAccountSasBuilder GetSasBuilder(string rawPermissions, TableAccountSasResourceTypes resourceTypes, DateTimeOffset expiresOn) => new TableAccountSasBuilder(rawPermissions, resourceTypes, expiresOn);
 }

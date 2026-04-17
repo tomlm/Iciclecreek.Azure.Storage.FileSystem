@@ -300,4 +300,35 @@ public class FileBlockBlobClient : BlockBlobClient
     /// <inheritdoc/>
     public new Task<Response<BlockInfo>> StageBlockFromUriAsync(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
         => NotSupported.Throw<Task<Response<BlockInfo>>>();
+
+    // ---- Remaining virtual properties and methods ----
+    /// <inheritdoc/>
+    public override int BlockBlobMaxBlocks => 50000;
+    /// <inheritdoc/>
+    public override long BlockBlobMaxUploadBlobLongBytes => 5000L * 1024 * 1024 * 1024; // 5 TiB
+    /// <inheritdoc/>
+    public override long BlockBlobMaxStageBlockLongBytes => 4000L * 1024 * 1024; // 4000 MiB
+    /// <inheritdoc/>
+    public override int BlockBlobMaxUploadBlobBytes => int.MaxValue;
+    /// <inheritdoc/>
+    public override int BlockBlobMaxStageBlockBytes => int.MaxValue;
+
+    /// <inheritdoc/>
+    public override Response<BlobDownloadInfo> Query(string querySqlExpression, BlobQueryOptions options = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    /// <inheritdoc/>
+    public override Task<Response<BlobDownloadInfo>> QueryAsync(string querySqlExpression, BlobQueryOptions options = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+    /// <inheritdoc/>
+    public override Response<BlobContentInfo> SyncUploadFromUri(Uri copySource, bool overwrite = false, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Response<BlobContentInfo>>();
+    /// <inheritdoc/>
+    public override Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, bool overwrite = false, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Task<Response<BlobContentInfo>>>();
+    /// <inheritdoc/>
+    public override Response<BlobContentInfo> SyncUploadFromUri(Uri copySource, BlobSyncUploadFromUriOptions options, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Response<BlobContentInfo>>();
+    /// <inheritdoc/>
+    public override Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, BlobSyncUploadFromUriOptions options, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Task<Response<BlobContentInfo>>>();
 }
