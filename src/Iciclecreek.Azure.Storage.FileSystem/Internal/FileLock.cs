@@ -2,7 +2,7 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 internal static class FileLock
 {
-    public static FileStream Acquire(
+    public static async Task<FileStream> AcquireAsync(
         string path,
         FileMode mode,
         FileAccess access,
@@ -20,22 +20,22 @@ internal static class FileLock
         {
             try
             {
-                return new FileStream(path, mode, access, FileShare.None);
+                return new FileStream(path, mode, access, FileShare.None, 4096, useAsync: true);
             }
             catch (IOException ex)
             {
                 last = ex;
-                Thread.Sleep(retryDelay);
+                await Task.Delay(retryDelay).ConfigureAwait(false);
             }
             catch (UnauthorizedAccessException ex) when (mode == FileMode.OpenOrCreate || mode == FileMode.Create)
             {
                 last = ex;
-                Thread.Sleep(retryDelay);
+                await Task.Delay(retryDelay).ConfigureAwait(false);
             }
         }
         throw new IOException($"Unable to acquire exclusive lock on '{path}' after {retryCount} attempts.", last);
     }
 
-    public static FileStream Acquire(string path, FileMode mode, FileAccess access, FileStorageProvider provider)
-        => Acquire(path, mode, access, provider.LockRetryCount, provider.LockRetryDelay);
+    public static Task<FileStream> AcquireAsync(string path, FileMode mode, FileAccess access, FileStorageProvider provider)
+        => AcquireAsync(path, mode, access, provider.LockRetryCount, provider.LockRetryDelay);
 }

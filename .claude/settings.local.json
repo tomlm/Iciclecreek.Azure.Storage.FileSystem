@@ -12,7 +12,9 @@
       "Bash(dotnet new:*)",
       "Bash(cp /tmp/inspector.cs /tmp/inspector/Program.cs)",
       "Bash(cp /tmp/inspector.csproj /tmp/inspector/inspector.csproj)",
-      "Bash(dotnet run:*)"
+      "Bash(dotnet run:*)",
+      "Bash(ls src/Iciclecreek.Azure.Storage.FileSystem/Blobs/*.cs src/Iciclecreek.Azure.Storage.FileSystem/Tables/*.cs)",
+      "Bash(xargs -I{} basename {})"
     ]
   }
 }

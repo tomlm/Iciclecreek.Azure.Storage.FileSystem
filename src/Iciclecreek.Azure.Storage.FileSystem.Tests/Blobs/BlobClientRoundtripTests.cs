@@ -135,4 +135,112 @@ public class BlobClientRoundtripTests
         var downloaded = await client.DownloadContentAsync();
         Assert.That(downloaded.Value.Content.ToString(), Is.EqualTo("async data"));
     }
+
+    [Test]
+    public async Task Upload_Download_Roundtrip_Text_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "test-container");
+        await container.CreateIfNotExistsAsync();
+
+        BlobClient client = container.GetBlobClient("hello.txt");
+        await client.UploadAsync(BinaryData.FromString("Hello, World!"));
+
+        var downloaded = await client.DownloadContentAsync();
+        Assert.That(downloaded.Value.Content.ToString(), Is.EqualTo("Hello, World!"));
+    }
+
+    [Test]
+    public async Task Upload_Download_Roundtrip_Binary_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "bin-container");
+        await container.CreateIfNotExistsAsync();
+
+        var data = new byte[] { 0, 1, 2, 3, 255, 254, 253, 252 };
+        BlobClient client = container.GetBlobClient("data.bin");
+        await client.UploadAsync(new BinaryData(data));
+
+        var downloaded = await client.DownloadContentAsync();
+        Assert.That(downloaded.Value.Content.ToArray(), Is.EqualTo(data));
+    }
+
+    [Test]
+    public async Task Upload_Creates_Real_File_On_Disk_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "disk-container");
+        await container.CreateIfNotExistsAsync();
+
+        BlobClient client = container.GetBlobClient("real-file.txt");
+        await client.UploadAsync(BinaryData.FromString("filesystem test"));
+
+        var expectedPath = Path.Combine(_root.Account.BlobsRootPath, "disk-container", "real-file.txt");
+        Assert.That(File.Exists(expectedPath), Is.True);
+        Assert.That(File.ReadAllText(expectedPath), Is.EqualTo("filesystem test"));
+    }
+
+    [Test]
+    public async Task Exists_Returns_False_For_Missing_Blob_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "exists-test");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetBlobClient("nope.txt");
+        Assert.That((await client.ExistsAsync()).Value, Is.False);
+    }
+
+    [Test]
+    public async Task Exists_Returns_True_After_Upload_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "exists-test");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetBlobClient("yes.txt");
+        await client.UploadAsync(BinaryData.FromString("data"));
+        Assert.That((await client.ExistsAsync()).Value, Is.True);
+    }
+
+    [Test]
+    public async Task Delete_Removes_Blob_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "del-test");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetBlobClient("del.txt");
+        await client.UploadAsync(BinaryData.FromString("bye"));
+        Assert.That((await client.ExistsAsync()).Value, Is.True);
+
+        await client.DeleteAsync();
+        Assert.That((await client.ExistsAsync()).Value, Is.False);
+    }
+
+    [Test]
+    public async Task GetProperties_Returns_ContentType_And_Length_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "props-test");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetBlobClient("props.txt");
+        await client.UploadAsync(BinaryData.FromString("content"), new BlobUploadOptions
+        {
+            HttpHeaders = new BlobHttpHeaders { ContentType = "text/plain" }
+        });
+
+        var props = (await client.GetPropertiesAsync()).Value;
+        Assert.That(props.ContentLength, Is.EqualTo(7));
+        Assert.That(props.ContentType, Is.EqualTo("text/plain"));
+        Assert.That(props.ETag.ToString(), Does.StartWith("\"0x"));
+    }
+
+    [Test]
+    public async Task SetMetadata_Persists_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "meta-test");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetBlobClient("meta.txt");
+        await client.UploadAsync(BinaryData.FromString("x"));
+
+        await client.SetMetadataAsync(new Dictionary<string, string> { ["color"] = "blue" });
+        var props = (await client.GetPropertiesAsync()).Value;
+        Assert.That(props.Metadata["color"], Is.EqualTo("blue"));
+    }
 }

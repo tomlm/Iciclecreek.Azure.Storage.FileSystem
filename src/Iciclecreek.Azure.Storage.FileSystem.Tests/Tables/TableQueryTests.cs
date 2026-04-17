@@ -77,4 +77,77 @@ public class TableQueryTests
         var names = service.Query().Select(t => t.Name).OrderBy(n => n).ToArray();
         Assert.That(names, Is.EqualTo(new[] { "alpha", "beta" }));
     }
+
+    // ───────────────────── Async counterparts ─────────────────────
+
+    private async Task<FileTableClient> SetupPeopleTableAsync()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "people");
+        await client.CreateIfNotExistsAsync();
+        await client.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice", ["Age"] = 30 });
+        await client.AddEntityAsync(new TableEntity("users", "bob") { ["Name"] = "Bob", ["Age"] = 25 });
+        await client.AddEntityAsync(new TableEntity("admins", "carol") { ["Name"] = "Carol", ["Age"] = 40 });
+        return client;
+    }
+
+    [Test]
+    public async Task Query_All_Returns_All_Entities_Async()
+    {
+        var client = await SetupPeopleTableAsync();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>()) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(3));
+    }
+
+    [Test]
+    public async Task Query_String_Filter_PartitionKey_Eq_Async()
+    {
+        var client = await SetupPeopleTableAsync();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>("PartitionKey eq 'users'")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(2));
+        Assert.That(results.All(r => r.PartitionKey == "users"), Is.True);
+    }
+
+    [Test]
+    public async Task Query_String_Filter_And_Async()
+    {
+        var client = await SetupPeopleTableAsync();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>("PartitionKey eq 'users' and RowKey eq 'alice'")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0]["Name"]?.ToString(), Is.EqualTo("Alice"));
+    }
+
+    [Test]
+    public async Task Query_String_Filter_Int_Comparison_Async()
+    {
+        var client = await SetupPeopleTableAsync();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>("Age gt 28")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task Query_Linq_Filter_Async()
+    {
+        var client = await SetupPeopleTableAsync();
+        var results = new List<TableEntity>();
+        await foreach (var e in client.QueryAsync<TableEntity>(e => e.PartitionKey == "admins")) results.Add(e);
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.That(results[0]["Name"]?.ToString(), Is.EqualTo("Carol"));
+    }
+
+    [Test]
+    public async Task ServiceClient_Lists_Tables_Async()
+    {
+        var service = FileTableServiceClient.FromAccount(_root.Account);
+        service.CreateTable("alpha");
+        service.CreateTable("beta");
+
+        var names = new List<string>();
+        await foreach (var t in service.QueryAsync()) names.Add(t.Name);
+        names.Sort();
+        Assert.That(names.ToArray(), Is.EqualTo(new[] { "alpha", "beta" }));
+    }
 }

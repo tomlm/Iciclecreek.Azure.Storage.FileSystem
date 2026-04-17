@@ -121,10 +121,16 @@ public class FileBlobContainerClient : BlobContainerClient
     }
 
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, Stream content, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return UploadBlob(blobName, content, cancellationToken); }
+    {
+        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
+    }
 
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, BinaryData content, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return UploadBlob(blobName, content, cancellationToken); }
+    {
+        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
+    }
 
     // ---- DeleteBlob ----
 
@@ -141,10 +147,16 @@ public class FileBlobContainerClient : BlobContainerClient
     }
 
     public override async Task<Response> DeleteBlobAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return DeleteBlob(blobName, snapshotsOption, conditions, cancellationToken); }
+    {
+        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        return await client.DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
+    }
 
     public override async Task<Response<bool>> DeleteBlobIfExistsAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return DeleteBlobIfExists(blobName, snapshotsOption, conditions, cancellationToken); }
+    {
+        var client = new FileBlobClient(_account, _store.ContainerName, blobName);
+        return await client.DeleteIfExistsAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
+    }
 
     // ---- GetBlobs / GetBlobsByHierarchy ----
 
@@ -157,10 +169,10 @@ public class FileBlobContainerClient : BlobContainerClient
             IDictionary<string, string>? metadata = null;
             if ((traits & BlobTraits.Metadata) != 0)
             {
-                sidecar = _store.ReadSidecar(blobName);
+                sidecar = _store.ReadSidecarAsync(blobName).GetAwaiter().GetResult();
                 metadata = sidecar?.Metadata;
             }
-            sidecar ??= _store.ReadSidecar(blobName);
+            sidecar ??= _store.ReadSidecarAsync(blobName).GetAwaiter().GetResult();
 
             var props = BlobsModelFactory.BlobItemProperties(
                 accessTierInferred: true,
@@ -201,7 +213,7 @@ public class FileBlobContainerClient : BlobContainerClient
             }
             else
             {
-                var sidecar = _store.ReadSidecar(blobName);
+                var sidecar = _store.ReadSidecarAsync(blobName).GetAwaiter().GetResult();
                 var props = BlobsModelFactory.BlobItemProperties(
                     accessTierInferred: true,
                     contentLength: fi.Length,
@@ -252,8 +264,30 @@ internal sealed class StaticAsyncPageable<T> : AsyncPageable<T> where T : notnul
     public StaticAsyncPageable(Pageable<T> inner) => _inner = inner;
     public override async IAsyncEnumerable<Page<T>> AsPages(string? continuationToken = default, int? pageSizeHint = default)
     {
-        await Task.Yield();
         foreach (var page in _inner.AsPages(continuationToken, pageSizeHint))
             yield return page;
+    }
+}
+
+internal sealed class AsyncEnumerablePageable<T> : AsyncPageable<T> where T : notnull
+{
+    private readonly IAsyncEnumerable<global::Azure.Data.Tables.TableEntity> _source;
+    private readonly Func<global::Azure.Data.Tables.TableEntity, T?> _transform;
+
+    public AsyncEnumerablePageable(IAsyncEnumerable<global::Azure.Data.Tables.TableEntity> source, Func<global::Azure.Data.Tables.TableEntity, T?> transform)
+    {
+        _source = source;
+        _transform = transform;
+    }
+
+    public override async IAsyncEnumerable<Page<T>> AsPages(string? continuationToken = default, int? pageSizeHint = default)
+    {
+        var items = new List<T>();
+        await foreach (var entity in _source.ConfigureAwait(false))
+        {
+            var result = _transform(entity);
+            if (result is not null) items.Add(result);
+        }
+        yield return Page<T>.FromValues(items, null, StubResponse.Ok());
     }
 }

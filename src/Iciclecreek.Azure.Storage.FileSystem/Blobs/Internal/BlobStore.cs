@@ -15,11 +15,8 @@ internal sealed class BlobStore
     }
 
     public FileStorageAccount Account { get; }
-
     public string ContainerName { get; }
-
     public string ContainerPath { get; }
-
     public FileStorageProvider Provider => Account.Provider;
 
     public bool ContainerExists() => Directory.Exists(ContainerPath);
@@ -61,16 +58,16 @@ internal sealed class BlobStore
         if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
     }
 
-    public BlobSidecar? ReadSidecar(string blobName)
-        => BlobSidecar.ReadFromFile(SidecarPath(blobName), Provider.JsonSerializerOptions);
+    public Task<BlobSidecar?> ReadSidecarAsync(string blobName, CancellationToken ct = default)
+        => BlobSidecar.ReadFromFileAsync(SidecarPath(blobName), Provider.JsonSerializerOptions, ct);
 
-    public void WriteSidecar(string blobName, BlobSidecar sidecar)
+    public async Task WriteSidecarAsync(string blobName, BlobSidecar sidecar, CancellationToken ct = default)
     {
         var json = JsonSerializer.Serialize(sidecar, Provider.JsonSerializerOptions);
-        AtomicFile.WriteAllText(SidecarPath(blobName), json);
+        await AtomicFile.WriteAllTextAsync(SidecarPath(blobName), json, ct).ConfigureAwait(false);
     }
 
-    public (long Length, byte[] Md5) WriteContentFromStream(string blobName, Stream content)
+    public async Task<(long Length, byte[] Md5)> WriteContentFromStreamAsync(string blobName, Stream content, CancellationToken ct = default)
     {
         var path = BlobPath(blobName);
         var dir = Path.GetDirectoryName(path);
@@ -79,21 +76,20 @@ internal sealed class BlobStore
         var tmp = path + ".tmp";
         byte[] hash;
         long length;
-        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
-        using (var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5))
+        await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
         {
+            using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
             var buf = new byte[81920];
             int read;
-            while ((read = content.Read(buf, 0, buf.Length)) > 0)
+            while ((read = await content.ReadAsync(buf, ct).ConfigureAwait(false)) > 0)
             {
-                fs.Write(buf, 0, read);
+                await fs.WriteAsync(buf.AsMemory(0, read), ct).ConfigureAwait(false);
                 md5.AppendData(buf, 0, read);
             }
-            fs.Flush(flushToDisk: true);
+            await fs.FlushAsync(ct).ConfigureAwait(false);
             length = fs.Length;
             hash = md5.GetHashAndReset();
         }
-        // Stream closed — safe to move.
         if (File.Exists(path))
             File.Replace(tmp, path, destinationBackupFileName: null, ignoreMetadataErrors: true);
         else
@@ -149,7 +145,6 @@ internal sealed class BlobStore
             var dir = stack.Pop();
             var dirName = Path.GetFileName(dir);
 
-            // Skip hidden system folders (.blocks, .tx*, or names starting with _)
             if (dir != ContainerPath)
             {
                 if (dirName.StartsWith('.') || dirName.StartsWith('_')) continue;

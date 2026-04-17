@@ -213,4 +213,205 @@ public class TableCrudTests
             client.GetEntity<TableEntity>("pk", "rk"));
         Assert.That(ex!.Status, Is.EqualTo(404));
     }
+
+    // ───────────────────── Async counterparts ─────────────────────
+
+    [Test]
+    public async Task AddEntity_And_GetEntity_Roundtrip_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "people");
+        await client.CreateIfNotExistsAsync();
+
+        var entity = new TableEntity("users", "alice")
+        {
+            ["Name"] = "Alice",
+            ["Age"] = 30,
+        };
+        await client.AddEntityAsync(entity);
+
+        var result = (await client.GetEntityAsync<TableEntity>("users", "alice")).Value;
+        Assert.That(result["Name"]?.ToString(), Is.EqualTo("Alice"));
+        Assert.That(Convert.ToInt32(result["Age"]), Is.EqualTo(30));
+    }
+
+    [Test]
+    public async Task AddEntity_Creates_File_On_Disk_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "disk-table");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["X"] = "Y" });
+
+        var path = Path.Combine(_root.Account.TablesRootPath, "disk-table", "pk", "rk.json");
+        Assert.That(File.Exists(path), Is.True);
+    }
+
+    [Test]
+    public async Task AddEntity_Duplicate_Throws_409_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "dup-table");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk"));
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.AddEntityAsync(new TableEntity("pk", "rk")));
+        Assert.That(ex!.Status, Is.EqualTo(409));
+    }
+
+    [Test]
+    public async Task UpsertEntity_Replace_Overwrites_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "upsert");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["A"] = "1", ["B"] = "2" });
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["A"] = "replaced" }, TableUpdateMode.Replace);
+
+        var result = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value;
+        Assert.That(result["A"]?.ToString(), Is.EqualTo("replaced"));
+        Assert.That(result.ContainsKey("B"), Is.False);
+    }
+
+    [Test]
+    public async Task UpsertEntity_Merge_Preserves_Existing_Properties_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "merge");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["A"] = "1", ["B"] = "2" });
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["A"] = "updated" }, TableUpdateMode.Merge);
+
+        var result = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value;
+        Assert.That(result["A"]?.ToString(), Is.EqualTo("updated"));
+        Assert.That(result["B"]?.ToString(), Is.EqualTo("2"));
+    }
+
+    [Test]
+    public async Task DeleteEntity_Removes_Entity_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "del-table");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk"));
+        await client.DeleteEntityAsync("pk", "rk");
+
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.GetEntityAsync<TableEntity>("pk", "rk"));
+        Assert.That(ex!.Status, Is.EqualTo(404));
+    }
+
+    [Test]
+    public async Task UpdateEntity_With_Stale_ETag_Throws_412_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "etag-table");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
+        var entity1 = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value;
+        var etag1 = entity1.ETag;
+
+        // Change the entity to move the ETag forward.
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
+
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.UpdateEntityAsync(new TableEntity("pk", "rk") { ["V"] = "3" }, etag1, TableUpdateMode.Replace));
+        Assert.That(ex!.Status, Is.EqualTo(412));
+    }
+
+    [Test]
+    public async Task UpdateEntity_With_ETag_All_Bypasses_Check_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "etag-all");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
+
+        Assert.DoesNotThrowAsync(async () =>
+            await client.UpdateEntityAsync(new TableEntity("pk", "rk") { ["V"] = "3" }, ETag.All, TableUpdateMode.Replace));
+    }
+
+    [Test]
+    public async Task ETag_Changes_On_Every_Write_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "etag-track");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
+        var etag1 = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value.ETag;
+
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
+        var etag2 = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value.ETag;
+
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "3" }, TableUpdateMode.Replace);
+        var etag3 = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value.ETag;
+
+        Assert.That(etag1, Is.Not.EqualTo(etag2));
+        Assert.That(etag2, Is.Not.EqualTo(etag3));
+    }
+
+    [Test]
+    public async Task Optimistic_Concurrency_ReadModifyWrite_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "etag-optimistic");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["Counter"] = 0 });
+
+        // Reader 1 fetches the entity.
+        var entity1 = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value;
+        var etag1 = entity1.ETag;
+
+        // Reader 2 fetches the same entity.
+        var entity2 = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value;
+        var etag2 = entity2.ETag;
+
+        // Reader 1 updates successfully.
+        await client.UpdateEntityAsync(
+            new TableEntity("pk", "rk") { ["Counter"] = 1 },
+            etag1, TableUpdateMode.Replace);
+
+        // Reader 2's update should fail — stale ETag.
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.UpdateEntityAsync(
+                new TableEntity("pk", "rk") { ["Counter"] = 1 },
+                etag2, TableUpdateMode.Replace));
+        Assert.That(ex!.Status, Is.EqualTo(412));
+
+        // Value should reflect Reader 1's write only.
+        var final_ = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value;
+        Assert.That(Convert.ToInt32(final_["Counter"]), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task DeleteEntity_With_Stale_ETag_Throws_412_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "etag-del");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk") { ["V"] = "1" });
+        var staleETag = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value.ETag;
+
+        await client.UpsertEntityAsync(new TableEntity("pk", "rk") { ["V"] = "2" }, TableUpdateMode.Replace);
+
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.DeleteEntityAsync("pk", "rk", staleETag));
+        Assert.That(ex!.Status, Is.EqualTo(412));
+    }
+
+    [Test]
+    public async Task DeleteEntity_With_Correct_ETag_Succeeds_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "etag-del-ok");
+        await client.CreateIfNotExistsAsync();
+
+        await client.AddEntityAsync(new TableEntity("pk", "rk"));
+        var currentETag = (await client.GetEntityAsync<TableEntity>("pk", "rk")).Value.ETag;
+
+        Assert.DoesNotThrowAsync(async () => await client.DeleteEntityAsync("pk", "rk", currentETag));
+
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.GetEntityAsync<TableEntity>("pk", "rk"));
+        Assert.That(ex!.Status, Is.EqualTo(404));
+    }
 }

@@ -38,7 +38,7 @@ public class FileTableClient : TableClient
     public override string AccountName => _account.Name;
     public override Uri Uri => new($"{_account.TableServiceUri}{_store.TableName}");
 
-    // ---- Create / Delete ----
+    // ---- Create / Delete (no file I/O, just directory ops) ----
 
     public override Response<TableItem> Create(CancellationToken cancellationToken = default)
     {
@@ -61,40 +61,37 @@ public class FileTableClient : TableClient
     }
 
     public override async Task<Response<TableItem>> CreateAsync(CancellationToken cancellationToken = default)
-    { await Task.Yield(); return Create(cancellationToken); }
-
+        => Create(cancellationToken);
     public override async Task<Response<TableItem>> CreateIfNotExistsAsync(CancellationToken cancellationToken = default)
-    { await Task.Yield(); return CreateIfNotExists(cancellationToken); }
-
+        => CreateIfNotExists(cancellationToken);
     public override async Task<Response> DeleteAsync(CancellationToken cancellationToken = default)
-    { await Task.Yield(); return Delete(cancellationToken); }
+        => Delete(cancellationToken);
 
-    // ---- Entity CRUD ----
+    // ---- Entity CRUD (async = primary) ----
 
-    public override Response AddEntity<T>(T entity, CancellationToken cancellationToken = default)
+    public override async Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
     {
-        _store.AddEntity(entity);
+        await _store.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
         return StubResponse.NoContent();
     }
 
-    public override async Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return AddEntity(entity, cancellationToken); }
-
-    public override Response<T> GetEntity<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-    {
-        var entity = _store.GetEntity(partitionKey, rowKey);
-        var result = ConvertEntity<T>(entity);
-        return Response.FromValue(result, StubResponse.Ok());
-    }
+    public override Response AddEntity<T>(T entity, CancellationToken cancellationToken = default)
+        => AddEntityAsync(entity, cancellationToken).GetAwaiter().GetResult();
 
     public override async Task<Response<T>> GetEntityAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return GetEntity<T>(partitionKey, rowKey, select, cancellationToken); }
+    {
+        var entity = await _store.GetEntityAsync(partitionKey, rowKey, cancellationToken).ConfigureAwait(false);
+        return Response.FromValue(ConvertEntity<T>(entity), StubResponse.Ok());
+    }
 
-    public override NullableResponse<T> GetEntityIfExists<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+    public override Response<T> GetEntity<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+        => GetEntityAsync<T>(partitionKey, rowKey, select, cancellationToken).GetAwaiter().GetResult();
+
+    public override async Task<NullableResponse<T>> GetEntityIfExistsAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         try
         {
-            var result = GetEntity<T>(partitionKey, rowKey, select, cancellationToken);
+            var result = await GetEntityAsync<T>(partitionKey, rowKey, select, cancellationToken).ConfigureAwait(false);
             return Response.FromValue<T>(result.Value, StubResponse.Ok());
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
@@ -103,68 +100,80 @@ public class FileTableClient : TableClient
         }
     }
 
-    public override async Task<NullableResponse<T>> GetEntityIfExistsAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return GetEntityIfExists<T>(partitionKey, rowKey, select, cancellationToken); }
-
-    public override Response UpsertEntity<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
-    {
-        _store.UpsertEntity(entity, mode);
-        return StubResponse.NoContent();
-    }
+    public override NullableResponse<T> GetEntityIfExists<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+        => GetEntityIfExistsAsync<T>(partitionKey, rowKey, select, cancellationToken).GetAwaiter().GetResult();
 
     public override async Task<Response> UpsertEntityAsync<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return UpsertEntity(entity, mode, cancellationToken); }
-
-    public override Response UpdateEntity<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
-        _store.UpdateEntity(entity, ifMatch, mode);
+        await _store.UpsertEntityAsync(entity, mode, cancellationToken).ConfigureAwait(false);
         return StubResponse.NoContent();
     }
+
+    public override Response UpsertEntity<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
+        => UpsertEntityAsync(entity, mode, cancellationToken).GetAwaiter().GetResult();
 
     public override async Task<Response> UpdateEntityAsync<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return UpdateEntity(entity, ifMatch, mode, cancellationToken); }
-
-    public override Response DeleteEntity(string partitionKey, string rowKey, ETag ifMatch = default, CancellationToken cancellationToken = default)
     {
-        var etag = ifMatch == default ? ETag.All : ifMatch;
-        _store.DeleteEntity(partitionKey, rowKey, etag);
+        await _store.UpdateEntityAsync(entity, ifMatch, mode, cancellationToken).ConfigureAwait(false);
         return StubResponse.NoContent();
     }
 
-    public override Response DeleteEntity(ITableEntity entity, ETag ifMatch = default, CancellationToken cancellationToken = default)
-        => DeleteEntity(entity.PartitionKey, entity.RowKey, ifMatch, cancellationToken);
+    public override Response UpdateEntity<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
+        => UpdateEntityAsync(entity, ifMatch, mode, cancellationToken).GetAwaiter().GetResult();
 
     public override async Task<Response> DeleteEntityAsync(string partitionKey, string rowKey, ETag ifMatch = default, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return DeleteEntity(partitionKey, rowKey, ifMatch, cancellationToken); }
+    {
+        var etag = ifMatch == default ? ETag.All : ifMatch;
+        await _store.DeleteEntityAsync(partitionKey, rowKey, etag, cancellationToken).ConfigureAwait(false);
+        return StubResponse.NoContent();
+    }
+
+    public override Response DeleteEntity(string partitionKey, string rowKey, ETag ifMatch = default, CancellationToken cancellationToken = default)
+        => DeleteEntityAsync(partitionKey, rowKey, ifMatch, cancellationToken).GetAwaiter().GetResult();
 
     public override async Task<Response> DeleteEntityAsync(ITableEntity entity, ETag ifMatch = default, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return DeleteEntity(entity, ifMatch, cancellationToken); }
+        => await DeleteEntityAsync(entity.PartitionKey, entity.RowKey, ifMatch, cancellationToken).ConfigureAwait(false);
 
-    // ---- Query ----
+    public override Response DeleteEntity(ITableEntity entity, ETag ifMatch = default, CancellationToken cancellationToken = default)
+        => DeleteEntityAsync(entity, ifMatch, cancellationToken).GetAwaiter().GetResult();
+
+    // ---- Query (async = primary for entity enumeration) ----
+
+    public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+    {
+        var predicate = ODataFilterParser.Parse(filter ?? "");
+        return new AsyncEnumerablePageable<T>(_store.EnumerateEntitiesAsync(), e => predicate(e) ? ConvertEntity<T>(e) : default);
+    }
 
     public override Pageable<T> Query<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var predicate = ODataFilterParser.Parse(filter ?? "");
-        var results = _store.EnumerateEntities().Where(e => predicate(e)).Select(e => ConvertEntity<T>(e)).ToList();
+        var results = new List<T>();
+        var enumerator = _store.EnumerateEntitiesAsync().GetAsyncEnumerator(cancellationToken);
+        try { while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult()) { if (predicate(enumerator.Current)) results.Add(ConvertEntity<T>(enumerator.Current)); } }
+        finally { enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
         return new StaticPageable<T>(results);
+    }
+
+    public override AsyncPageable<T> QueryAsync<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
+    {
+        var compiled = filter.Compile();
+        return new AsyncEnumerablePageable<T>(_store.EnumerateEntitiesAsync(), e => { var c = ConvertEntity<T>(e); return compiled(c) ? c : default; });
     }
 
     public override Pageable<T> Query<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var compiled = filter.Compile();
-        var results = _store.EnumerateEntities().Select(e => ConvertEntity<T>(e)).Where(e => compiled(e)).ToList();
+        var results = new List<T>();
+        var enumerator = _store.EnumerateEntitiesAsync().GetAsyncEnumerator(cancellationToken);
+        try { while (enumerator.MoveNextAsync().AsTask().GetAwaiter().GetResult()) { var c = ConvertEntity<T>(enumerator.Current); if (compiled(c)) results.Add(c); } }
+        finally { enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult(); }
         return new StaticPageable<T>(results);
     }
 
-    public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-        => new StaticAsyncPageable<T>(Query<T>(filter, maxPerPage, select, cancellationToken));
+    // ---- SubmitTransaction (async = primary) ----
 
-    public override AsyncPageable<T> QueryAsync<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
-        => new StaticAsyncPageable<T>(Query(filter, maxPerPage, select, cancellationToken));
-
-    // ---- SubmitTransaction ----
-
-    public override Response<IReadOnlyList<Response>> SubmitTransaction(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
+    public override async Task<Response<IReadOnlyList<Response>>> SubmitTransactionAsync(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
     {
         var actions = transactionActions.ToList();
         if (actions.Count == 0)
@@ -177,13 +186,12 @@ public class FileTableClient : TableClient
                 throw new RequestFailedException(400, "All entities in a transaction must have the same PartitionKey.", "InvalidInput", null);
         }
 
-        // Snapshot current state for rollback.
         var snapshots = new Dictionary<string, string?>();
         foreach (var action in actions)
         {
             var path = _store.EntityPath(action.Entity.PartitionKey, action.Entity.RowKey);
             if (!snapshots.ContainsKey(path))
-                snapshots[path] = File.Exists(path) ? File.ReadAllText(path) : null;
+                snapshots[path] = File.Exists(path) ? await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false) : null;
         }
 
         var responses = new List<Response>();
@@ -197,40 +205,29 @@ public class FileTableClient : TableClient
                     switch (a.ActionType)
                     {
                         case TableTransactionActionType.Add:
-                            _store.AddEntity(a.Entity);
+                            await _store.AddEntityAsync(a.Entity, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpdateMerge:
-                            _store.UpdateEntity(a.Entity, a.ETag, TableUpdateMode.Merge);
+                            await _store.UpdateEntityAsync(a.Entity, a.ETag, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpdateReplace:
-                            _store.UpdateEntity(a.Entity, a.ETag, TableUpdateMode.Replace);
+                            await _store.UpdateEntityAsync(a.Entity, a.ETag, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpsertMerge:
-                            _store.UpsertEntity(a.Entity, TableUpdateMode.Merge);
+                            await _store.UpsertEntityAsync(a.Entity, TableUpdateMode.Merge, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.UpsertReplace:
-                            _store.UpsertEntity(a.Entity, TableUpdateMode.Replace);
+                            await _store.UpsertEntityAsync(a.Entity, TableUpdateMode.Replace, cancellationToken).ConfigureAwait(false);
                             break;
                         case TableTransactionActionType.Delete:
-                            _store.DeleteEntity(a.Entity.PartitionKey, a.Entity.RowKey, a.ETag == default ? ETag.All : a.ETag);
+                            await _store.DeleteEntityAsync(a.Entity.PartitionKey, a.Entity.RowKey, a.ETag == default ? ETag.All : a.ETag, cancellationToken).ConfigureAwait(false);
                             break;
                     }
                     responses.Add(StubResponse.NoContent());
                 }
                 catch (RequestFailedException ex)
                 {
-                    // Rollback
-                    foreach (var kvp in snapshots)
-                    {
-                        if (kvp.Value is null)
-                        {
-                            if (File.Exists(kvp.Key)) File.Delete(kvp.Key);
-                        }
-                        else
-                        {
-                            AtomicFile.WriteAllText(kvp.Key, kvp.Value);
-                        }
-                    }
+                    await RollbackAsync(snapshots, cancellationToken).ConfigureAwait(false);
                     throw new TableTransactionFailedException(ex);
                 }
             }
@@ -238,18 +235,7 @@ public class FileTableClient : TableClient
         catch (TableTransactionFailedException) { throw; }
         catch (Exception ex)
         {
-            // Rollback on unexpected errors.
-            foreach (var kvp in snapshots)
-            {
-                if (kvp.Value is null)
-                {
-                    if (File.Exists(kvp.Key)) File.Delete(kvp.Key);
-                }
-                else
-                {
-                    AtomicFile.WriteAllText(kvp.Key, kvp.Value);
-                }
-            }
+            await RollbackAsync(snapshots, cancellationToken).ConfigureAwait(false);
             throw new RequestFailedException(500, ex.Message, null, ex);
         }
 
@@ -257,10 +243,25 @@ public class FileTableClient : TableClient
         return Response.FromValue(list, StubResponse.Accepted());
     }
 
-    public override async Task<Response<IReadOnlyList<Response>>> SubmitTransactionAsync(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return SubmitTransaction(transactionActions, cancellationToken); }
+    public override Response<IReadOnlyList<Response>> SubmitTransaction(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
+        => SubmitTransactionAsync(transactionActions, cancellationToken).GetAwaiter().GetResult();
 
     // ---- Helpers ----
+
+    private static async Task RollbackAsync(Dictionary<string, string?> snapshots, CancellationToken ct)
+    {
+        foreach (var kvp in snapshots)
+        {
+            if (kvp.Value is null)
+            {
+                if (File.Exists(kvp.Key)) File.Delete(kvp.Key);
+            }
+            else
+            {
+                await AtomicFile.WriteAllTextAsync(kvp.Key, kvp.Value, ct).ConfigureAwait(false);
+            }
+        }
+    }
 
     private static T ConvertEntity<T>(TableEntity entity) where T : class, ITableEntity
     {
@@ -282,11 +283,8 @@ public class FileTableClient : TableClient
             var prop = type.GetProperty(kvp.Key);
             if (prop is not null && prop.CanWrite && kvp.Value is not null)
             {
-                try
-                {
-                    prop.SetValue(result, Convert.ChangeType(kvp.Value, prop.PropertyType));
-                }
-                catch { /* property type mismatch — skip */ }
+                try { prop.SetValue(result, Convert.ChangeType(kvp.Value, prop.PropertyType)); }
+                catch { }
             }
         }
         return result;

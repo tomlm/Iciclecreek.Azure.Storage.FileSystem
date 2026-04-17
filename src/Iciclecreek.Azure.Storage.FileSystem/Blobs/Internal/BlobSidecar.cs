@@ -33,20 +33,19 @@ internal sealed class BlobSidecar
 
     public List<CommittedBlock> CommittedBlocks { get; set; } = new();
 
-    public static BlobSidecar? ReadFromFile(string path, JsonSerializerOptions options)
+    public static async Task<BlobSidecar?> ReadFromFileAsync(string path, JsonSerializerOptions options, CancellationToken ct = default)
     {
         if (!File.Exists(path)) return null;
         try
         {
-            using var fs = File.OpenRead(path);
-            return JsonSerializer.Deserialize<BlobSidecar>(fs, options);
+            await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+            return await JsonSerializer.DeserializeAsync<BlobSidecar>(fs, options, ct).ConfigureAwait(false);
         }
         catch (IOException)
         {
-            // Retry once — may have been mid-write.
-            Thread.Sleep(10);
-            using var fs = File.OpenRead(path);
-            return JsonSerializer.Deserialize<BlobSidecar>(fs, options);
+            await Task.Delay(10, ct).ConfigureAwait(false);
+            await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+            return await JsonSerializer.DeserializeAsync<BlobSidecar>(fs, options, ct).ConfigureAwait(false);
         }
     }
 }

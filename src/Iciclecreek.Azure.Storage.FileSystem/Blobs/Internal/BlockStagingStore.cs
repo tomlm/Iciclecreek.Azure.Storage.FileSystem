@@ -15,59 +15,45 @@ internal sealed class BlockStagingStore
 
     public string StagingDir => _stagingDir;
 
-    public void Stage(string base64BlockId, Stream content)
+    public async Task StageAsync(string base64BlockId, Stream content, CancellationToken ct = default)
     {
         Directory.CreateDirectory(_stagingDir);
         var encoded = BlobPathEncoder.EncodeBlockId(base64BlockId);
         var blockPath = Path.Combine(_stagingDir, encoded + ".block");
 
-        using var fs = new FileStream(blockPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        content.CopyTo(fs);
-        fs.Flush(flushToDisk: true);
+        await using (var fs = new FileStream(blockPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        {
+            await content.CopyToAsync(fs, ct).ConfigureAwait(false);
+            await fs.FlushAsync(ct).ConfigureAwait(false);
+        }
 
-        var index = ReadIndex();
+        var index = await ReadIndexAsync(ct).ConfigureAwait(false);
         index[base64BlockId] = new StagedBlockInfo { Size = new FileInfo(blockPath).Length, StagedAtUtc = DateTimeOffset.UtcNow };
-        WriteIndex(index);
+        await WriteIndexAsync(index, ct).ConfigureAwait(false);
     }
 
-    public Stream? OpenBlock(string base64BlockId)
+    public async Task<Stream?> OpenBlockAsync(string base64BlockId)
     {
         var encoded = BlobPathEncoder.EncodeBlockId(base64BlockId);
         var blockPath = Path.Combine(_stagingDir, encoded + ".block");
-        return File.Exists(blockPath) ? File.OpenRead(blockPath) : null;
+        if (!File.Exists(blockPath)) return null;
+        return new FileStream(blockPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
     }
 
-    public long? GetBlockSize(string base64BlockId)
-    {
-        var index = ReadIndex();
-        return index.TryGetValue(base64BlockId, out var info) ? info.Size : null;
-    }
-
-    public Dictionary<string, StagedBlockInfo> ReadIndex()
+    public async Task<Dictionary<string, StagedBlockInfo>> ReadIndexAsync(CancellationToken ct = default)
     {
         var indexPath = Path.Combine(_stagingDir, "staging.json");
         if (!File.Exists(indexPath)) return new();
-        var json = File.ReadAllText(indexPath);
-        return JsonSerializer.Deserialize<Dictionary<string, StagedBlockInfo>>(json, _jsonOpts) ?? new();
+        await using var fs = new FileStream(indexPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+        return await JsonSerializer.DeserializeAsync<Dictionary<string, StagedBlockInfo>>(fs, _jsonOpts, ct).ConfigureAwait(false) ?? new();
     }
 
-    public void WriteIndex(Dictionary<string, StagedBlockInfo> index)
+    public async Task WriteIndexAsync(Dictionary<string, StagedBlockInfo> index, CancellationToken ct = default)
     {
         Directory.CreateDirectory(_stagingDir);
         var indexPath = Path.Combine(_stagingDir, "staging.json");
-        var json = JsonSerializer.Serialize(index, _jsonOpts);
-        File.WriteAllText(indexPath, json);
-    }
-
-    public void RemoveBlock(string base64BlockId)
-    {
-        var encoded = BlobPathEncoder.EncodeBlockId(base64BlockId);
-        var blockPath = Path.Combine(_stagingDir, encoded + ".block");
-        if (File.Exists(blockPath)) File.Delete(blockPath);
-
-        var index = ReadIndex();
-        index.Remove(base64BlockId);
-        WriteIndex(index);
+        await using var fs = new FileStream(indexPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true);
+        await JsonSerializer.SerializeAsync(fs, index, _jsonOpts, ct).ConfigureAwait(false);
     }
 
     public void Cleanup()

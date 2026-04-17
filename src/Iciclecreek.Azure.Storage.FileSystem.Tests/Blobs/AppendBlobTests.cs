@@ -71,4 +71,61 @@ public class AppendBlobTests
         client.AppendBlock(new MemoryStream(new byte[50]));
         Assert.That(client.GetProperties().Value.ContentLength, Is.EqualTo(150));
     }
+
+    [Test]
+    public async Task Create_And_AppendBlock_Roundtrip_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "append");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetFileAppendBlobClient("log.txt");
+        await client.CreateAsync(new AppendBlobCreateOptions());
+
+        await client.AppendBlockAsync(new MemoryStream("line 1\n"u8.ToArray()));
+        await client.AppendBlockAsync(new MemoryStream("line 2\n"u8.ToArray()));
+
+        var content = (await client.DownloadContentAsync()).Value.Content.ToString();
+        Assert.That(content, Is.EqualTo("line 1\nline 2\n"));
+    }
+
+    [Test]
+    public async Task Create_Sets_BlobType_Append_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "appendtype");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetFileAppendBlobClient("typed.txt");
+        await client.CreateAsync(new AppendBlobCreateOptions());
+
+        var props = (await client.GetPropertiesAsync()).Value;
+        Assert.That(props.BlobType, Is.EqualTo(BlobType.Append));
+    }
+
+    [Test]
+    public void AppendBlock_Without_Create_Throws_404_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "nope");
+        container.CreateIfNotExists();
+
+        var client = container.GetFileAppendBlobClient("missing.txt");
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.AppendBlockAsync(new MemoryStream("x"u8.ToArray())));
+        Assert.That(ex!.Status, Is.EqualTo(404));
+    }
+
+    [Test]
+    public async Task AppendBlock_Grows_File_Size_Async()
+    {
+        var container = FileBlobContainerClient.FromAccount(_root.Account, "grow");
+        await container.CreateIfNotExistsAsync();
+
+        var client = container.GetFileAppendBlobClient("growing.bin");
+        await client.CreateAsync(new AppendBlobCreateOptions());
+
+        await client.AppendBlockAsync(new MemoryStream(new byte[100]));
+        Assert.That((await client.GetPropertiesAsync()).Value.ContentLength, Is.EqualTo(100));
+
+        await client.AppendBlockAsync(new MemoryStream(new byte[50]));
+        Assert.That((await client.GetPropertiesAsync()).Value.ContentLength, Is.EqualTo(150));
+    }
 }

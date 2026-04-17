@@ -75,4 +75,67 @@ public class TableTransactionTests
 
         Assert.Throws<RequestFailedException>(() => client.SubmitTransaction(actions));
     }
+
+    // ───────────────────── Async counterparts ─────────────────────
+
+    [Test]
+    public async Task SubmitTransaction_All_Succeed_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "tx-ok");
+        await client.CreateIfNotExistsAsync();
+
+        var actions = new[]
+        {
+            new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk", "r1") { ["V"] = "1" }),
+            new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk", "r2") { ["V"] = "2" }),
+        };
+
+        var result = await client.SubmitTransactionAsync(actions);
+        Assert.That(result.Value, Has.Count.EqualTo(2));
+
+        Assert.That((await client.GetEntityAsync<TableEntity>("pk", "r1")).Value["V"]?.ToString(), Is.EqualTo("1"));
+        Assert.That((await client.GetEntityAsync<TableEntity>("pk", "r2")).Value["V"]?.ToString(), Is.EqualTo("2"));
+    }
+
+    [Test]
+    public async Task SubmitTransaction_Rollback_On_Failure_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "tx-fail");
+        await client.CreateIfNotExistsAsync();
+
+        // Pre-add one entity to cause a conflict.
+        await client.AddEntityAsync(new TableEntity("pk", "existing") { ["V"] = "original" });
+
+        var actions = new[]
+        {
+            new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk", "new1") { ["V"] = "x" }),
+            new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk", "existing")), // will 409
+        };
+
+        Assert.ThrowsAsync<TableTransactionFailedException>(async () => await client.SubmitTransactionAsync(actions));
+
+        // new1 should have been rolled back.
+        var ex = Assert.ThrowsAsync<RequestFailedException>(async () =>
+            await client.GetEntityAsync<TableEntity>("pk", "new1"));
+        Assert.That(ex!.Status, Is.EqualTo(404));
+
+        // existing should be unchanged.
+        var existing = (await client.GetEntityAsync<TableEntity>("pk", "existing")).Value;
+        Assert.That(existing["V"]?.ToString(), Is.EqualTo("original"));
+    }
+
+    [Test]
+    public async Task SubmitTransaction_Different_PartitionKey_Throws_Async()
+    {
+        var client = FileTableClient.FromAccount(_root.Account, "tx-pk");
+        await client.CreateIfNotExistsAsync();
+
+        var actions = new[]
+        {
+            new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk1", "r1")),
+            new TableTransactionAction(TableTransactionActionType.Add, new TableEntity("pk2", "r2")),
+        };
+
+        Assert.ThrowsAsync<RequestFailedException>(async () => await client.SubmitTransactionAsync(actions));
+    }
 }

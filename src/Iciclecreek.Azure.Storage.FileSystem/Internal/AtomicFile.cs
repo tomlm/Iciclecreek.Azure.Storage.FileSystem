@@ -2,39 +2,39 @@ namespace Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 internal static class AtomicFile
 {
-    public static void WriteAllBytes(string path, byte[] bytes)
+    public static async Task WriteAllBytesAsync(string path, byte[] bytes, CancellationToken ct = default)
     {
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
         var tmp = path + ".tmp";
-        File.WriteAllBytes(tmp, bytes);
+        await File.WriteAllBytesAsync(tmp, bytes, ct).ConfigureAwait(false);
         MoveOverwrite(tmp, path);
     }
 
-    public static void WriteAllText(string path, string text)
+    public static async Task WriteAllTextAsync(string path, string text, CancellationToken ct = default)
     {
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
         var tmp = path + ".tmp";
-        File.WriteAllText(tmp, text);
+        await File.WriteAllTextAsync(tmp, text, ct).ConfigureAwait(false);
         MoveOverwrite(tmp, path);
     }
 
-    public static void WriteStream(string path, Stream content)
+    public static async Task WriteStreamAsync(string path, Stream content, CancellationToken ct = default)
     {
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
 
         var tmp = path + ".tmp";
-        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        await using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
         {
-            content.CopyTo(fs);
-            fs.Flush(flushToDisk: true);
+            await content.CopyToAsync(fs, ct).ConfigureAwait(false);
+            await fs.FlushAsync(ct).ConfigureAwait(false);
         }
         MoveOverwrite(tmp, path);
     }
