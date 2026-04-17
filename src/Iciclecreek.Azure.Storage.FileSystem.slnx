@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Iciclecreek.Azure.Storage.FileSystem.Tests/Iciclecreek.Azure.Storage.FileSystem.Tests.csproj" />
+  <Project Path="Iciclecreek.Azure.Storage.FileSystem/Iciclecreek.Azure.Storage.FileSystem.csproj" />
+</Solution>

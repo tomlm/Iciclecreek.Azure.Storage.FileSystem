@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Bash(dotnet add:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet nuget locals:*)",
+      "Bash(powershell:*)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(dotnet new:*)",
+      "Bash(cp /tmp/inspector.cs /tmp/inspector/Program.cs)",
+      "Bash(cp /tmp/inspector.csproj /tmp/inspector/inspector.csproj)",
+      "Bash(dotnet run:*)"
+    ]
+  }
+}
