@@ -7,15 +7,22 @@ using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Tables;
 
+/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Data.Tables.TableServiceClient"/>. Each table is a subdirectory under the account's tables path.</summary>
 public class FileTableServiceClient : TableServiceClient
 {
     internal readonly FileStorageAccount _account;
 
+    /// <summary>Initializes a new <see cref="FileTableServiceClient"/> from a connection string and storage provider.</summary>
+    /// <param name="connectionString">The connection string identifying the storage account.</param>
+    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
     public FileTableServiceClient(string connectionString, FileStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
     }
 
+    /// <summary>Initializes a new <see cref="FileTableServiceClient"/> from a service URI and storage provider.</summary>
+    /// <param name="serviceUri">The URI of the table service endpoint.</param>
+    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
     public FileTableServiceClient(Uri serviceUri, FileStorageProvider provider) : base()
     {
         var name = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
@@ -28,46 +35,59 @@ public class FileTableServiceClient : TableServiceClient
         _account = account;
     }
 
+    /// <summary>Creates a new <see cref="FileTableServiceClient"/> directly from a <see cref="FileStorageAccount"/>.</summary>
+    /// <param name="account">The filesystem storage account.</param>
+    /// <returns>A new <see cref="FileTableServiceClient"/> instance.</returns>
     public static FileTableServiceClient FromAccount(FileStorageAccount account) => new(account);
 
+    /// <inheritdoc/>
     public override string AccountName => _account.Name;
+    /// <inheritdoc/>
     public override Uri Uri => _account.TableServiceUri;
 
     // ---- GetTableClient ----
 
+    /// <inheritdoc/>
     public override TableClient GetTableClient(string tableName) => new FileTableClient(_account, tableName);
 
     // ---- CreateTable ----
 
+    /// <inheritdoc/>
     public override Response<TableItem> CreateTable(string tableName, CancellationToken cancellationToken = default)
     {
         var client = new FileTableClient(_account, tableName);
         return client.Create(cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override Response<TableItem> CreateTableIfNotExists(string tableName, CancellationToken cancellationToken = default)
     {
         var client = new FileTableClient(_account, tableName);
         return client.CreateIfNotExists(cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override Response DeleteTable(string tableName, CancellationToken cancellationToken = default)
     {
         var client = new FileTableClient(_account, tableName);
         return client.Delete(cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<TableItem>> CreateTableAsync(string tableName, CancellationToken cancellationToken = default)
     { await Task.Yield(); return CreateTable(tableName, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response<TableItem>> CreateTableIfNotExistsAsync(string tableName, CancellationToken cancellationToken = default)
     { await Task.Yield(); return CreateTableIfNotExists(tableName, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteTableAsync(string tableName, CancellationToken cancellationToken = default)
     { await Task.Yield(); return DeleteTable(tableName, cancellationToken); }
 
     // ---- Query ----
 
+    /// <inheritdoc/>
     public override Pageable<TableItem> Query(string? filter = null, int? maxPerPage = null, CancellationToken cancellationToken = default)
     {
         var items = new List<TableItem>();
@@ -83,6 +103,7 @@ public class FileTableServiceClient : TableServiceClient
         return new StaticPageable<TableItem>(items);
     }
 
+    /// <inheritdoc/>
     public override Pageable<TableItem> Query(Expression<Func<TableItem, bool>> filter, int? maxPerPage = null, CancellationToken cancellationToken = default)
     {
         var all = Query((string?)null, maxPerPage, cancellationToken);
@@ -90,9 +111,35 @@ public class FileTableServiceClient : TableServiceClient
         return new StaticPageable<TableItem>(all.Where(compiled).ToList());
     }
 
+    /// <inheritdoc/>
     public override AsyncPageable<TableItem> QueryAsync(string? filter = null, int? maxPerPage = null, CancellationToken cancellationToken = default)
         => new StaticAsyncPageable<TableItem>(Query(filter, maxPerPage, cancellationToken));
 
+    /// <inheritdoc/>
     public override AsyncPageable<TableItem> QueryAsync(Expression<Func<TableItem, bool>> filter, int? maxPerPage = null, CancellationToken cancellationToken = default)
         => new StaticAsyncPageable<TableItem>(Query(filter, maxPerPage, cancellationToken));
+
+    // ---- FormattableString query overloads ----
+
+    /// <inheritdoc/>
+    public override Pageable<TableItem> Query(FormattableString filter, int? maxPerPage = null, CancellationToken cancellationToken = default)
+        => Query(filter?.ToString(), maxPerPage, cancellationToken);
+
+    /// <inheritdoc/>
+    public override AsyncPageable<TableItem> QueryAsync(FormattableString filter, int? maxPerPage = null, CancellationToken cancellationToken = default)
+        => QueryAsync(filter?.ToString(), maxPerPage, cancellationToken);
+
+    // ---- NotSupported sweep — TableServiceClient ----
+    /// <inheritdoc/>
+    public override Response<TableServiceProperties> GetProperties(CancellationToken ct = default) => NotSupported.Throw<Response<TableServiceProperties>>();
+    /// <inheritdoc/>
+    public override Task<Response<TableServiceProperties>> GetPropertiesAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<TableServiceProperties>>>();
+    /// <inheritdoc/>
+    public override Response SetProperties(TableServiceProperties properties, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    /// <inheritdoc/>
+    public override Task<Response> SetPropertiesAsync(TableServiceProperties properties, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    /// <inheritdoc/>
+    public override Response<TableServiceStatistics> GetStatistics(CancellationToken ct = default) => NotSupported.Throw<Response<TableServiceStatistics>>();
+    /// <inheritdoc/>
+    public override Task<Response<TableServiceStatistics>> GetStatisticsAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<TableServiceStatistics>>>();
 }

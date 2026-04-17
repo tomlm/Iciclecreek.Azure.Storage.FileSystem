@@ -8,12 +8,18 @@ using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
 
+/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Storage.Blobs.Specialized.AppendBlobClient"/>. Supports Create and AppendBlock using filesystem append mode.</summary>
 public class FileAppendBlobClient : AppendBlobClient
 {
     internal readonly BlobStore _store;
     internal readonly string _blobName;
     internal readonly FileStorageAccount _account;
 
+    /// <summary>Initializes a new <see cref="FileAppendBlobClient"/> from a connection string, container name, blob name, and provider.</summary>
+    /// <param name="connectionString">The storage connection string.</param>
+    /// <param name="containerName">The name of the blob container.</param>
+    /// <param name="blobName">The name of the blob.</param>
+    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileAppendBlobClient(string connectionString, string containerName, string blobName, FileStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
@@ -21,6 +27,9 @@ public class FileAppendBlobClient : AppendBlobClient
         _blobName = blobName;
     }
 
+    /// <summary>Initializes a new <see cref="FileAppendBlobClient"/> by parsing a blob URI against the given provider.</summary>
+    /// <param name="blobUri">The blob URI to parse.</param>
+    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileAppendBlobClient(Uri blobUri, FileStorageProvider provider) : base()
     {
         var (acctName, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
@@ -36,16 +45,25 @@ public class FileAppendBlobClient : AppendBlobClient
         _blobName = blobName;
     }
 
+    /// <summary>Creates a new <see cref="FileAppendBlobClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
+    /// <param name="account">The filesystem-backed storage account.</param>
+    /// <param name="containerName">The name of the blob container.</param>
+    /// <param name="blobName">The name of the blob.</param>
     public static FileAppendBlobClient FromAccount(FileStorageAccount account, string containerName, string blobName)
         => new(account, containerName, blobName);
 
+    /// <inheritdoc/>
     public override string Name => _blobName;
+    /// <inheritdoc/>
     public override string BlobContainerName => _store.ContainerName;
+    /// <inheritdoc/>
     public override string AccountName => _account.Name;
+    /// <inheritdoc/>
     public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ---- Create (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CreateAsync(AppendBlobCreateOptions options, CancellationToken cancellationToken = default)
     {
         var conditions = options?.Conditions;
@@ -78,9 +96,11 @@ public class FileAppendBlobClient : AppendBlobClient
         return Response.FromValue(info, StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CreateAsync(BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, AppendBlobRequestConditions conditions, CancellationToken cancellationToken = default)
         => await CreateAsync(new AppendBlobCreateOptions { HttpHeaders = httpHeaders, Metadata = metadata, Conditions = conditions }, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CreateIfNotExistsAsync(AppendBlobCreateOptions options, CancellationToken cancellationToken = default)
     {
         if (_store.Exists(_blobName))
@@ -88,23 +108,29 @@ public class FileAppendBlobClient : AppendBlobClient
         return await CreateAsync(options, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CreateIfNotExistsAsync(BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, CancellationToken cancellationToken = default)
         => await CreateIfNotExistsAsync(new AppendBlobCreateOptions { HttpHeaders = httpHeaders, Metadata = metadata }, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> Create(AppendBlobCreateOptions options, CancellationToken cancellationToken = default)
         => CreateAsync(options, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> Create(BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, AppendBlobRequestConditions conditions, CancellationToken cancellationToken = default)
         => CreateAsync(httpHeaders, metadata, conditions, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> CreateIfNotExists(AppendBlobCreateOptions options, CancellationToken cancellationToken = default)
         => CreateIfNotExistsAsync(options, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> CreateIfNotExists(BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, CancellationToken cancellationToken = default)
         => CreateIfNotExistsAsync(httpHeaders, metadata, cancellationToken).GetAwaiter().GetResult();
 
     // ---- AppendBlock (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobAppendInfo>> AppendBlockAsync(Stream content, AppendBlobAppendBlockOptions options = default!, CancellationToken cancellationToken = default)
     {
         var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
@@ -145,23 +171,29 @@ public class FileAppendBlobClient : AppendBlobClient
         return Response.FromValue(info, StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobAppendInfo>> AppendBlockAsync(Stream content, byte[] transactionalContentHash, AppendBlobRequestConditions conditions, IProgress<long>? progressHandler, CancellationToken cancellationToken = default)
         => await AppendBlockAsync(content, new AppendBlobAppendBlockOptions { Conditions = conditions }, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override Response<BlobAppendInfo> AppendBlock(Stream content, AppendBlobAppendBlockOptions options = default!, CancellationToken cancellationToken = default)
         => AppendBlockAsync(content, options, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlobAppendInfo> AppendBlock(Stream content, byte[] transactionalContentHash, AppendBlobRequestConditions conditions, IProgress<long>? progressHandler, CancellationToken cancellationToken = default)
         => AppendBlockAsync(content, transactionalContentHash, conditions, progressHandler, cancellationToken).GetAwaiter().GetResult();
 
     // ---- Shared blob operations (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
         => Response.FromValue(_store.Exists(_blobName), StubResponse.Ok());
 
+    /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
         => ExistsAsync(cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false);
@@ -170,24 +202,61 @@ public class FileAppendBlobClient : AppendBlobClient
         return StubResponse.Accepted();
     }
 
+    /// <inheritdoc/>
     public override Response Delete(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
         => DeleteAsync(snapshotsOption, conditions, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override Response<BlobProperties> GetProperties(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
         => GetPropertiesAsync(conditions, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobDownloadResult>> DownloadContentAsync(CancellationToken cancellationToken = default)
     {
         var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
         return await blobClient.DownloadContentAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override Response<BlobDownloadResult> DownloadContent(CancellationToken cancellationToken = default)
         => DownloadContentAsync(cancellationToken).GetAwaiter().GetResult();
+
+    // ---- GenerateSasUri ----
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasBuilder builder) => Uri;
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasPermissions permissions, DateTimeOffset expiresOn) => Uri;
+
+    // ---- OpenWrite ----
+    /// <inheritdoc/>
+    public override async Task<Stream> OpenWriteAsync(bool overwrite, AppendBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        return await blobClient.OpenWriteAsync(overwrite, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public override Stream OpenWrite(bool overwrite, AppendBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
+        => OpenWriteAsync(overwrite, options, cancellationToken).GetAwaiter().GetResult();
+
+    // ---- AppendBlockFromUri / Seal (not virtual — shadow with new) ----
+    /// <inheritdoc/>
+    public new Response<BlobAppendInfo> AppendBlockFromUri(Uri sourceUri, AppendBlobAppendBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Response<BlobAppendInfo>>();
+    /// <inheritdoc/>
+    public new Task<Response<BlobAppendInfo>> AppendBlockFromUriAsync(Uri sourceUri, AppendBlobAppendBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Task<Response<BlobAppendInfo>>>();
+    /// <inheritdoc/>
+    public new Response<BlobInfo> Seal(AppendBlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Response<BlobInfo>>();
+    /// <inheritdoc/>
+    public new Task<Response<BlobInfo>> SealAsync(AppendBlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Task<Response<BlobInfo>>>();
 }

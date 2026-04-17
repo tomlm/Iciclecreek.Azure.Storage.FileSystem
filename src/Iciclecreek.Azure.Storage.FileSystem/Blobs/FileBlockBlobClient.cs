@@ -7,12 +7,18 @@ using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
 
+/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Storage.Blobs.Specialized.BlockBlobClient"/>. Supports StageBlock/CommitBlockList with staged blocks stored in a <c>.blocks/</c> subdirectory.</summary>
 public class FileBlockBlobClient : BlockBlobClient
 {
     internal readonly BlobStore _store;
     internal readonly string _blobName;
     internal readonly FileStorageAccount _account;
 
+    /// <summary>Initializes a new <see cref="FileBlockBlobClient"/> from a connection string, container name, blob name, and provider.</summary>
+    /// <param name="connectionString">The storage connection string.</param>
+    /// <param name="containerName">The name of the blob container.</param>
+    /// <param name="blobName">The name of the blob.</param>
+    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlockBlobClient(string connectionString, string containerName, string blobName, FileStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
@@ -20,6 +26,9 @@ public class FileBlockBlobClient : BlockBlobClient
         _blobName = blobName;
     }
 
+    /// <summary>Initializes a new <see cref="FileBlockBlobClient"/> by parsing a blob URI against the given provider.</summary>
+    /// <param name="blobUri">The blob URI to parse.</param>
+    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlockBlobClient(Uri blobUri, FileStorageProvider provider) : base()
     {
         var (acctName, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
@@ -35,16 +44,25 @@ public class FileBlockBlobClient : BlockBlobClient
         _blobName = blobName;
     }
 
+    /// <summary>Creates a new <see cref="FileBlockBlobClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
+    /// <param name="account">The filesystem-backed storage account.</param>
+    /// <param name="containerName">The name of the blob container.</param>
+    /// <param name="blobName">The name of the blob.</param>
     public static FileBlockBlobClient FromAccount(FileStorageAccount account, string containerName, string blobName)
         => new(account, containerName, blobName);
 
+    /// <inheritdoc/>
     public override string Name => _blobName;
+    /// <inheritdoc/>
     public override string BlobContainerName => _store.ContainerName;
+    /// <inheritdoc/>
     public override string AccountName => _account.Name;
+    /// <inheritdoc/>
     public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ---- StageBlock (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlockInfo>> StageBlockAsync(string base64BlockId, Stream content, byte[] transactionalContentHash = default!, BlobRequestConditions conditions = default!, IProgress<long>? progressHandler = default, CancellationToken cancellationToken = default)
     {
         var staging = new BlockStagingStore(_store, _blobName);
@@ -53,17 +71,21 @@ public class FileBlockBlobClient : BlockBlobClient
         return Response.FromValue(info, StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlockInfo>> StageBlockAsync(string base64BlockId, Stream content, BlockBlobStageBlockOptions options, CancellationToken cancellationToken = default)
         => await StageBlockAsync(base64BlockId, content, null!, options?.Conditions, null, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override Response<BlockInfo> StageBlock(string base64BlockId, Stream content, byte[] transactionalContentHash = default!, BlobRequestConditions conditions = default!, IProgress<long>? progressHandler = default, CancellationToken cancellationToken = default)
         => StageBlockAsync(base64BlockId, content, transactionalContentHash, conditions, progressHandler, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlockInfo> StageBlock(string base64BlockId, Stream content, BlockBlobStageBlockOptions options, CancellationToken cancellationToken = default)
         => StageBlockAsync(base64BlockId, content, options, cancellationToken).GetAwaiter().GetResult();
 
     // ---- CommitBlockList (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CommitBlockListAsync(IEnumerable<string> base64BlockIds, CommitBlockListOptions options = default!, CancellationToken cancellationToken = default)
     {
         var staging = new BlockStagingStore(_store, _blobName);
@@ -135,17 +157,21 @@ public class FileBlockBlobClient : BlockBlobClient
         return Response.FromValue(info, StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> CommitBlockListAsync(IEnumerable<string> base64BlockIds, BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, BlobRequestConditions conditions, AccessTier? accessTier, CancellationToken cancellationToken = default)
         => await CommitBlockListAsync(base64BlockIds, new CommitBlockListOptions { HttpHeaders = httpHeaders, Metadata = metadata, Conditions = conditions }, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> CommitBlockList(IEnumerable<string> base64BlockIds, CommitBlockListOptions options = default!, CancellationToken cancellationToken = default)
         => CommitBlockListAsync(base64BlockIds, options, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> CommitBlockList(IEnumerable<string> base64BlockIds, BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, BlobRequestConditions conditions, AccessTier? accessTier, CancellationToken cancellationToken = default)
         => CommitBlockListAsync(base64BlockIds, httpHeaders, metadata, conditions, accessTier, cancellationToken).GetAwaiter().GetResult();
 
     // ---- GetBlockList (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlockList>> GetBlockListAsync(BlockListTypes blockListTypes = BlockListTypes.All, string snapshot = default!, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false);
@@ -175,34 +201,42 @@ public class FileBlockBlobClient : BlockBlobClient
         return Response.FromValue(blockList, StubResponse.Ok());
     }
 
+    /// <inheritdoc/>
     public override Response<BlockList> GetBlockList(BlockListTypes blockListTypes = BlockListTypes.All, string snapshot = default!, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
         => GetBlockListAsync(blockListTypes, snapshot, conditions, cancellationToken).GetAwaiter().GetResult();
 
     // ---- Upload (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadAsync(Stream content, BlobUploadOptions options, CancellationToken cancellationToken = default)
     {
         var fileBlobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
         return await fileBlobClient.UploadCoreAsync(content, options, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadAsync(Stream content, BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, BlobRequestConditions conditions, AccessTier? accessTier, IProgress<long>? progressHandler, CancellationToken cancellationToken = default)
         => await UploadAsync(content, new BlobUploadOptions { HttpHeaders = httpHeaders, Metadata = metadata, Conditions = conditions }, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> Upload(Stream content, BlobUploadOptions options, CancellationToken cancellationToken = default)
         => UploadAsync(content, options, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> Upload(Stream content, BlobHttpHeaders httpHeaders, IDictionary<string, string> metadata, BlobRequestConditions conditions, AccessTier? accessTier, IProgress<long>? progressHandler, CancellationToken cancellationToken = default)
         => UploadAsync(content, httpHeaders, metadata, conditions, accessTier, progressHandler, cancellationToken).GetAwaiter().GetResult();
 
     // ---- Shared blob operations (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
         => Response.FromValue(_store.Exists(_blobName), StubResponse.Ok());
 
+    /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
         => ExistsAsync(cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false);
@@ -211,24 +245,59 @@ public class FileBlockBlobClient : BlockBlobClient
         return StubResponse.Accepted();
     }
 
+    /// <inheritdoc/>
     public override Response Delete(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
         => DeleteAsync(snapshotsOption, conditions, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
         return await blobClient.GetPropertiesAsync(conditions, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override Response<BlobProperties> GetProperties(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
         => GetPropertiesAsync(conditions, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobDownloadResult>> DownloadContentAsync(CancellationToken cancellationToken = default)
     {
         var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
         return await blobClient.DownloadContentAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override Response<BlobDownloadResult> DownloadContent(CancellationToken cancellationToken = default)
         => DownloadContentAsync(cancellationToken).GetAwaiter().GetResult();
+
+    // ---- GenerateSasUri ----
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasBuilder builder) => Uri;
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasPermissions permissions, DateTimeOffset expiresOn) => Uri;
+
+    // ---- OpenWrite ----
+    /// <inheritdoc/>
+    public override async Task<Stream> OpenWriteAsync(bool overwrite, BlockBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        return await blobClient.OpenWriteAsync(overwrite, options is null ? null : new BlobOpenWriteOptions
+        {
+            HttpHeaders = options.HttpHeaders,
+            Metadata = options.Metadata,
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public override Stream OpenWrite(bool overwrite, BlockBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
+        => OpenWriteAsync(overwrite, options, cancellationToken).GetAwaiter().GetResult();
+
+    // ---- StageBlockFromUri (not virtual — shadow with new) ----
+    /// <inheritdoc/>
+    public new Response<BlockInfo> StageBlockFromUri(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Response<BlockInfo>>();
+    /// <inheritdoc/>
+    public new Task<Response<BlockInfo>> StageBlockFromUriAsync(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
+        => NotSupported.Throw<Task<Response<BlockInfo>>>();
 }

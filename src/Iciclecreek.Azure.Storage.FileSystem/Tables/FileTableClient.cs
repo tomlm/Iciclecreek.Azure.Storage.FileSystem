@@ -8,17 +8,25 @@ using Iciclecreek.Azure.Storage.FileSystem.Tables.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Tables;
 
+/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Data.Tables.TableClient"/>. Each entity is stored as a JSON file at <c>&lt;table&gt;/&lt;partitionKey&gt;/&lt;rowKey&gt;.json</c>.</summary>
 public class FileTableClient : TableClient
 {
     internal readonly TableStore _store;
     internal readonly FileStorageAccount _account;
 
+    /// <summary>Initializes a new <see cref="FileTableClient"/> from a connection string, table name, and storage provider.</summary>
+    /// <param name="connectionString">The connection string identifying the storage account.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
     public FileTableClient(string connectionString, string tableName, FileStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
         _store = new TableStore(_account, tableName);
     }
 
+    /// <summary>Initializes a new <see cref="FileTableClient"/> from a table URI and storage provider.</summary>
+    /// <param name="tableUri">The URI of the table, including the account name and table name.</param>
+    /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
     public FileTableClient(Uri tableUri, FileStorageProvider provider) : base()
     {
         var (acctName, table) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseTableUri(tableUri, provider.HostnameSuffix);
@@ -32,14 +40,22 @@ public class FileTableClient : TableClient
         _store = new TableStore(account, tableName);
     }
 
+    /// <summary>Creates a new <see cref="FileTableClient"/> directly from a <see cref="FileStorageAccount"/> and table name.</summary>
+    /// <param name="account">The filesystem storage account.</param>
+    /// <param name="tableName">The name of the table.</param>
+    /// <returns>A new <see cref="FileTableClient"/> instance.</returns>
     public static FileTableClient FromAccount(FileStorageAccount account, string tableName) => new(account, tableName);
 
+    /// <inheritdoc/>
     public override string Name => _store.TableName;
+    /// <inheritdoc/>
     public override string AccountName => _account.Name;
+    /// <inheritdoc/>
     public override Uri Uri => new($"{_account.TableServiceUri}{_store.TableName}");
 
     // ---- Create / Delete (no file I/O, just directory ops) ----
 
+    /// <inheritdoc/>
     public override Response<TableItem> Create(CancellationToken cancellationToken = default)
     {
         if (!_store.CreateTable())
@@ -47,12 +63,14 @@ public class FileTableClient : TableClient
         return Response.FromValue(new TableItem(_store.TableName), StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override Response<TableItem> CreateIfNotExists(CancellationToken cancellationToken = default)
     {
         _store.CreateTable();
         return Response.FromValue(new TableItem(_store.TableName), StubResponse.Ok());
     }
 
+    /// <inheritdoc/>
     public override Response Delete(CancellationToken cancellationToken = default)
     {
         if (!_store.DeleteTable())
@@ -60,67 +78,77 @@ public class FileTableClient : TableClient
         return StubResponse.NoContent();
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<TableItem>> CreateAsync(CancellationToken cancellationToken = default)
         => Create(cancellationToken);
+    /// <inheritdoc/>
     public override async Task<Response<TableItem>> CreateIfNotExistsAsync(CancellationToken cancellationToken = default)
         => CreateIfNotExists(cancellationToken);
+    /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(CancellationToken cancellationToken = default)
         => Delete(cancellationToken);
 
     // ---- Entity CRUD (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response> AddEntityAsync<T>(T entity, CancellationToken cancellationToken = default)
     {
         await _store.AddEntityAsync(entity, cancellationToken).ConfigureAwait(false);
         return StubResponse.NoContent();
     }
 
+    /// <inheritdoc/>
     public override Response AddEntity<T>(T entity, CancellationToken cancellationToken = default)
         => AddEntityAsync(entity, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response<T>> GetEntityAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var entity = await _store.GetEntityAsync(partitionKey, rowKey, cancellationToken).ConfigureAwait(false);
         return Response.FromValue(ConvertEntity<T>(entity), StubResponse.Ok());
     }
 
+    /// <inheritdoc/>
     public override Response<T> GetEntity<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
         => GetEntityAsync<T>(partitionKey, rowKey, select, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<NullableResponse<T>> GetEntityIfExistsAsync<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var result = await GetEntityAsync<T>(partitionKey, rowKey, select, cancellationToken).ConfigureAwait(false);
-            return Response.FromValue<T>(result.Value, StubResponse.Ok());
-        }
-        catch (RequestFailedException ex) when (ex.Status == 404)
-        {
+        if (!_store.EntityExists(partitionKey, rowKey))
             return default!;
-        }
+
+        var result = await GetEntityAsync<T>(partitionKey, rowKey, select, cancellationToken).ConfigureAwait(false);
+        return Response.FromValue<T>(result.Value, StubResponse.Ok());
     }
 
+    /// <inheritdoc/>
     public override NullableResponse<T> GetEntityIfExists<T>(string partitionKey, string rowKey, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
         => GetEntityIfExistsAsync<T>(partitionKey, rowKey, select, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response> UpsertEntityAsync<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
         await _store.UpsertEntityAsync(entity, mode, cancellationToken).ConfigureAwait(false);
         return StubResponse.NoContent();
     }
 
+    /// <inheritdoc/>
     public override Response UpsertEntity<T>(T entity, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
         => UpsertEntityAsync(entity, mode, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response> UpdateEntityAsync<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
     {
         await _store.UpdateEntityAsync(entity, ifMatch, mode, cancellationToken).ConfigureAwait(false);
         return StubResponse.NoContent();
     }
 
+    /// <inheritdoc/>
     public override Response UpdateEntity<T>(T entity, ETag ifMatch, TableUpdateMode mode = TableUpdateMode.Merge, CancellationToken cancellationToken = default)
         => UpdateEntityAsync(entity, ifMatch, mode, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteEntityAsync(string partitionKey, string rowKey, ETag ifMatch = default, CancellationToken cancellationToken = default)
     {
         var etag = ifMatch == default ? ETag.All : ifMatch;
@@ -128,23 +156,28 @@ public class FileTableClient : TableClient
         return StubResponse.NoContent();
     }
 
+    /// <inheritdoc/>
     public override Response DeleteEntity(string partitionKey, string rowKey, ETag ifMatch = default, CancellationToken cancellationToken = default)
         => DeleteEntityAsync(partitionKey, rowKey, ifMatch, cancellationToken).GetAwaiter().GetResult();
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteEntityAsync(ITableEntity entity, ETag ifMatch = default, CancellationToken cancellationToken = default)
         => await DeleteEntityAsync(entity.PartitionKey, entity.RowKey, ifMatch, cancellationToken).ConfigureAwait(false);
 
+    /// <inheritdoc/>
     public override Response DeleteEntity(ITableEntity entity, ETag ifMatch = default, CancellationToken cancellationToken = default)
         => DeleteEntityAsync(entity, ifMatch, cancellationToken).GetAwaiter().GetResult();
 
     // ---- Query (async = primary for entity enumeration) ----
 
+    /// <inheritdoc/>
     public override AsyncPageable<T> QueryAsync<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var predicate = ODataFilterParser.Parse(filter ?? "");
         return new AsyncEnumerablePageable<T>(_store.EnumerateEntitiesAsync(), e => predicate(e) ? ConvertEntity<T>(e) : default);
     }
 
+    /// <inheritdoc/>
     public override Pageable<T> Query<T>(string? filter = null, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var predicate = ODataFilterParser.Parse(filter ?? "");
@@ -155,12 +188,14 @@ public class FileTableClient : TableClient
         return new StaticPageable<T>(results);
     }
 
+    /// <inheritdoc/>
     public override AsyncPageable<T> QueryAsync<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var compiled = filter.Compile();
         return new AsyncEnumerablePageable<T>(_store.EnumerateEntitiesAsync(), e => { var c = ConvertEntity<T>(e); return compiled(c) ? c : default; });
     }
 
+    /// <inheritdoc/>
     public override Pageable<T> Query<T>(Expression<Func<T, bool>> filter, int? maxPerPage = null, IEnumerable<string>? select = null, CancellationToken cancellationToken = default)
     {
         var compiled = filter.Compile();
@@ -173,6 +208,7 @@ public class FileTableClient : TableClient
 
     // ---- SubmitTransaction (async = primary) ----
 
+    /// <inheritdoc/>
     public override async Task<Response<IReadOnlyList<Response>>> SubmitTransactionAsync(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
     {
         var actions = transactionActions.ToList();
@@ -243,6 +279,7 @@ public class FileTableClient : TableClient
         return Response.FromValue(list, StubResponse.Accepted());
     }
 
+    /// <inheritdoc/>
     public override Response<IReadOnlyList<Response>> SubmitTransaction(IEnumerable<TableTransactionAction> transactionActions, CancellationToken cancellationToken = default)
         => SubmitTransactionAsync(transactionActions, cancellationToken).GetAwaiter().GetResult();
 
@@ -289,4 +326,15 @@ public class FileTableClient : TableClient
         }
         return result;
     }
+
+    // ==== NotSupported sweep — TableClient ====
+
+    /// <inheritdoc/>
+    public override Response<IReadOnlyList<TableSignedIdentifier>> GetAccessPolicies(CancellationToken ct = default) => NotSupported.Throw<Response<IReadOnlyList<TableSignedIdentifier>>>();
+    /// <inheritdoc/>
+    public override Task<Response<IReadOnlyList<TableSignedIdentifier>>> GetAccessPoliciesAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<IReadOnlyList<TableSignedIdentifier>>>>();
+    /// <inheritdoc/>
+    public override Response SetAccessPolicy(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    /// <inheritdoc/>
+    public override Task<Response> SetAccessPolicyAsync(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
 }

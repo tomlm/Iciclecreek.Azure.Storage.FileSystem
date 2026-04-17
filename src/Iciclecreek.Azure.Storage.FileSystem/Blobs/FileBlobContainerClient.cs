@@ -6,17 +6,25 @@ using Iciclecreek.Azure.Storage.FileSystem.Internal;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
 
+/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Storage.Blobs.BlobContainerClient"/>. Each container is a subdirectory under the account's blobs path.</summary>
 public class FileBlobContainerClient : BlobContainerClient
 {
     internal readonly BlobStore _store;
     internal readonly FileStorageAccount _account;
 
+    /// <summary>Initializes a new <see cref="FileBlobContainerClient"/> from a connection string, container name, and provider.</summary>
+    /// <param name="connectionString">The storage connection string.</param>
+    /// <param name="containerName">The name of the blob container.</param>
+    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlobContainerClient(string connectionString, string containerName, FileStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
         _store = new BlobStore(_account, containerName);
     }
 
+    /// <summary>Initializes a new <see cref="FileBlobContainerClient"/> by parsing a container URI against the given provider.</summary>
+    /// <param name="containerUri">The container URI to parse.</param>
+    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlobContainerClient(Uri containerUri, FileStorageProvider provider) : base()
     {
         var (acctName, container, _) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(containerUri, provider.HostnameSuffix);
@@ -30,38 +38,53 @@ public class FileBlobContainerClient : BlobContainerClient
         _store = new BlobStore(account, containerName);
     }
 
+    /// <summary>Creates a new <see cref="FileBlobContainerClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
+    /// <param name="account">The filesystem-backed storage account.</param>
+    /// <param name="containerName">The name of the blob container.</param>
     public static FileBlobContainerClient FromAccount(FileStorageAccount account, string containerName)
         => new(account, containerName);
 
+    /// <inheritdoc/>
     public override string Name => _store.ContainerName;
+    /// <inheritdoc/>
     public override string AccountName => _account.Name;
+    /// <inheritdoc/>
     public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}");
 
     // ---- Create / Delete / Exists ----
 
+    /// <inheritdoc/>
     public override Response<BlobContainerInfo> Create(PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
         if (_store.ContainerExists())
             throw new RequestFailedException(409, "Container already exists.", "ContainerAlreadyExists", null);
         _store.CreateContainer();
+        if (metadata is not null && metadata.Count > 0)
+            PersistContainerMetadata(metadata);
         var info = BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow);
         return Response.FromValue(info, StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override Response<BlobContainerInfo> Create(PublicAccessType publicAccessType, IDictionary<string, string>? metadata, BlobContainerEncryptionScopeOptions encryptionScopeOptions, CancellationToken cancellationToken = default)
         => Create(publicAccessType, metadata, cancellationToken);
 
+    /// <inheritdoc/>
     public override Response<BlobContainerInfo> CreateIfNotExists(PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
         if (_store.ContainerExists())
             return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Ok());
         _store.CreateContainer();
+        if (metadata is not null && metadata.Count > 0)
+            PersistContainerMetadata(metadata);
         return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Created());
     }
 
+    /// <inheritdoc/>
     public override Response<BlobContainerInfo> CreateIfNotExists(PublicAccessType publicAccessType, IDictionary<string, string>? metadata, BlobContainerEncryptionScopeOptions encryptionScopeOptions, CancellationToken cancellationToken = default)
         => CreateIfNotExists(publicAccessType, metadata, cancellationToken);
 
+    /// <inheritdoc/>
     public override Response Delete(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         if (!_store.DeleteContainer())
@@ -69,63 +92,81 @@ public class FileBlobContainerClient : BlobContainerClient
         return StubResponse.Accepted();
     }
 
+    /// <inheritdoc/>
     public override Response<bool> DeleteIfExists(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
         => Response.FromValue(_store.DeleteContainer(), StubResponse.Ok());
 
+    /// <inheritdoc/>
     public override Response<bool> Exists(CancellationToken cancellationToken = default)
         => Response.FromValue(_store.ContainerExists(), StubResponse.Ok());
 
     // ---- Async Create / Delete / Exists ----
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContainerInfo>> CreateAsync(PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     { await Task.Yield(); return Create(publicAccessType, metadata, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContainerInfo>> CreateAsync(PublicAccessType publicAccessType, IDictionary<string, string>? metadata, BlobContainerEncryptionScopeOptions encryptionScopeOptions, CancellationToken cancellationToken = default)
     { await Task.Yield(); return Create(publicAccessType, metadata, encryptionScopeOptions, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContainerInfo>> CreateIfNotExistsAsync(PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     { await Task.Yield(); return CreateIfNotExists(publicAccessType, metadata, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContainerInfo>> CreateIfNotExistsAsync(PublicAccessType publicAccessType, IDictionary<string, string>? metadata, BlobContainerEncryptionScopeOptions encryptionScopeOptions, CancellationToken cancellationToken = default)
     { await Task.Yield(); return CreateIfNotExists(publicAccessType, metadata, encryptionScopeOptions, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     { await Task.Yield(); return Delete(conditions, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteIfExistsAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     { await Task.Yield(); return DeleteIfExists(conditions, cancellationToken); }
 
+    /// <inheritdoc/>
     public override async Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
     { await Task.Yield(); return Exists(cancellationToken); }
 
     // ---- GetBlobClient ----
 
+    /// <inheritdoc/>
     public override BlobClient GetBlobClient(string blobName) => new FileBlobClient(_account, _store.ContainerName, blobName);
 
+    /// <summary>Returns a <see cref="FileBlockBlobClient"/> for the specified blob within this container.</summary>
+    /// <param name="blobName">The name of the blob.</param>
     public FileBlockBlobClient GetFileBlockBlobClient(string blobName) => new FileBlockBlobClient(_account, _store.ContainerName, blobName);
 
+    /// <summary>Returns a <see cref="FileAppendBlobClient"/> for the specified blob within this container.</summary>
+    /// <param name="blobName">The name of the blob.</param>
     public FileAppendBlobClient GetFileAppendBlobClient(string blobName) => new FileAppendBlobClient(_account, _store.ContainerName, blobName);
 
     // ---- UploadBlob ----
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override Response<BlobContentInfo> UploadBlob(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
         return client.Upload(content, false, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, Stream content, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
         return await client.UploadAsync(content, false, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContentInfo>> UploadBlobAsync(string blobName, BinaryData content, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
@@ -134,24 +175,28 @@ public class FileBlobContainerClient : BlobContainerClient
 
     // ---- DeleteBlob ----
 
+    /// <inheritdoc/>
     public override Response DeleteBlob(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
         return client.Delete(snapshotsOption, conditions, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override Response<bool> DeleteBlobIfExists(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
         return client.DeleteIfExists(snapshotsOption, conditions, cancellationToken);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response> DeleteBlobAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
         return await client.DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteBlobIfExistsAsync(string blobName, DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         var client = new FileBlobClient(_account, _store.ContainerName, blobName);
@@ -160,6 +205,7 @@ public class FileBlobContainerClient : BlobContainerClient
 
     // ---- GetBlobs / GetBlobsByHierarchy ----
 
+    /// <inheritdoc/>
     public override Pageable<BlobItem> GetBlobs(BlobTraits traits = default, BlobStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
         var items = new List<BlobItem>();
@@ -192,9 +238,11 @@ public class FileBlobContainerClient : BlobContainerClient
         return new StaticPageable<BlobItem>(items);
     }
 
+    /// <inheritdoc/>
     public override AsyncPageable<BlobItem> GetBlobsAsync(BlobTraits traits = default, BlobStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
         => new StaticAsyncPageable<BlobItem>(GetBlobs(traits, states, prefix, cancellationToken));
 
+    /// <inheritdoc/>
     public override Pageable<BlobHierarchyItem> GetBlobsByHierarchy(BlobTraits traits = default, BlobStates states = default, string? delimiter = "/", string? prefix = default, CancellationToken cancellationToken = default)
     {
         delimiter ??= "/";
@@ -229,21 +277,104 @@ public class FileBlobContainerClient : BlobContainerClient
         return new StaticPageable<BlobHierarchyItem>(items);
     }
 
+    /// <inheritdoc/>
     public override AsyncPageable<BlobHierarchyItem> GetBlobsByHierarchyAsync(BlobTraits traits = default, BlobStates states = default, string? delimiter = "/", string? prefix = default, CancellationToken cancellationToken = default)
         => new StaticAsyncPageable<BlobHierarchyItem>(GetBlobsByHierarchy(traits, states, delimiter, prefix, cancellationToken));
 
+    // ---- GetBlobs / GetBlobsByHierarchy — Options-object overloads ----
+
+    /// <inheritdoc/>
+    public override Pageable<BlobItem> GetBlobs(GetBlobsOptions options, CancellationToken cancellationToken = default)
+        => GetBlobs(options?.Traits ?? default, options?.States ?? default, options?.Prefix, cancellationToken);
+
+    /// <inheritdoc/>
+    public override AsyncPageable<BlobItem> GetBlobsAsync(GetBlobsOptions options, CancellationToken cancellationToken = default)
+        => GetBlobsAsync(options?.Traits ?? default, options?.States ?? default, options?.Prefix, cancellationToken);
+
+    /// <inheritdoc/>
+    public override Pageable<BlobHierarchyItem> GetBlobsByHierarchy(GetBlobsByHierarchyOptions options, CancellationToken cancellationToken = default)
+        => GetBlobsByHierarchy(options?.Traits ?? default, options?.States ?? default, options?.Delimiter ?? "/", options?.Prefix, cancellationToken);
+
+    /// <inheritdoc/>
+    public override AsyncPageable<BlobHierarchyItem> GetBlobsByHierarchyAsync(GetBlobsByHierarchyOptions options, CancellationToken cancellationToken = default)
+        => GetBlobsByHierarchyAsync(options?.Traits ?? default, options?.States ?? default, options?.Delimiter ?? "/", options?.Prefix, cancellationToken);
+
     // ---- Container Properties ----
 
+    /// <inheritdoc/>
     public override Response<BlobContainerProperties> GetProperties(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         if (!_store.ContainerExists())
             throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
-        var props = BlobsModelFactory.BlobContainerProperties(lastModified: DateTimeOffset.UtcNow, eTag: new ETag("\"0x0\""));
+        IDictionary<string, string>? metadata = null;
+        var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
+        if (File.Exists(metaPath))
+        {
+            var json = File.ReadAllText(metaPath);
+            metadata = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json, _account.Provider.JsonSerializerOptions);
+        }
+        var props = BlobsModelFactory.BlobContainerProperties(lastModified: DateTimeOffset.UtcNow, eTag: new ETag("\"0x0\""), metadata: metadata);
         return Response.FromValue(props, StubResponse.Ok());
     }
 
+    /// <inheritdoc/>
     public override async Task<Response<BlobContainerProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
-    { await Task.Yield(); return GetProperties(conditions, cancellationToken); }
+        => GetProperties(conditions, cancellationToken);
+
+    // ---- Item 5: Container SetMetadata ----
+
+    /// <inheritdoc/>
+    public override Response<BlobContainerInfo> SetMetadata(IDictionary<string, string> metadata, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
+    {
+        if (!_store.ContainerExists())
+            throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
+        // Container metadata stored in _container.meta.json
+        var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
+        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _account.Provider.JsonSerializerOptions);
+        Iciclecreek.Azure.Storage.FileSystem.Internal.AtomicFile.WriteAllTextAsync(metaPath, json).GetAwaiter().GetResult();
+        return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Ok());
+    }
+
+    /// <inheritdoc/>
+    public override async Task<Response<BlobContainerInfo>> SetMetadataAsync(IDictionary<string, string> metadata, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
+    {
+        if (!_store.ContainerExists())
+            throw new RequestFailedException(404, "Container not found.", "ContainerNotFound", null);
+        var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
+        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _account.Provider.JsonSerializerOptions);
+        await Iciclecreek.Azure.Storage.FileSystem.Internal.AtomicFile.WriteAllTextAsync(metaPath, json, cancellationToken).ConfigureAwait(false);
+        return Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Ok());
+    }
+
+    // ---- GenerateSasUri ----
+    /// <inheritdoc/>
+    public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasBuilder builder) => Uri;
+
+    // ---- NotSupported sweep — BlobContainerClient ----
+    /// <inheritdoc/>
+    public override Response<BlobContainerAccessPolicy> GetAccessPolicy(BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Response<BlobContainerAccessPolicy>>();
+    /// <inheritdoc/>
+    public override Task<Response<BlobContainerAccessPolicy>> GetAccessPolicyAsync(BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerAccessPolicy>>>();
+    /// <inheritdoc/>
+    public override Response<BlobContainerInfo> SetAccessPolicy(PublicAccessType accessType = default, IEnumerable<BlobSignedIdentifier>? permissions = null, BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Response<BlobContainerInfo>>();
+    /// <inheritdoc/>
+    public override Task<Response<BlobContainerInfo>> SetAccessPolicyAsync(PublicAccessType accessType = default, IEnumerable<BlobSignedIdentifier>? permissions = null, BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerInfo>>>();
+    /// <inheritdoc/>
+    public override Response<AccountInfo> GetAccountInfo(CancellationToken ct = default) => NotSupported.Throw<Response<AccountInfo>>();
+    /// <inheritdoc/>
+    public override Task<Response<AccountInfo>> GetAccountInfoAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<AccountInfo>>>();
+    /// <inheritdoc/>
+    public override Pageable<TaggedBlobItem> FindBlobsByTags(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<Pageable<TaggedBlobItem>>();
+    /// <inheritdoc/>
+    public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<AsyncPageable<TaggedBlobItem>>();
+
+    // ---- Helper ----
+    private void PersistContainerMetadata(IDictionary<string, string> metadata)
+    {
+        var metaPath = Path.Combine(_store.ContainerPath, "_container.meta.json");
+        var json = System.Text.Json.JsonSerializer.Serialize(metadata, _account.Provider.JsonSerializerOptions);
+        Iciclecreek.Azure.Storage.FileSystem.Internal.AtomicFile.WriteAllTextAsync(metaPath, json).GetAwaiter().GetResult();
+    }
 }
 
 // ---- Pageable helpers ----
@@ -252,6 +383,7 @@ internal sealed class StaticPageable<T> : Pageable<T> where T : notnull
 {
     private readonly IReadOnlyList<T> _items;
     public StaticPageable(IReadOnlyList<T> items) => _items = items;
+    /// <inheritdoc/>
     public override IEnumerable<Page<T>> AsPages(string? continuationToken = default, int? pageSizeHint = default)
     {
         yield return Page<T>.FromValues(_items.ToList(), null, StubResponse.Ok());
@@ -262,6 +394,7 @@ internal sealed class StaticAsyncPageable<T> : AsyncPageable<T> where T : notnul
 {
     private readonly Pageable<T> _inner;
     public StaticAsyncPageable(Pageable<T> inner) => _inner = inner;
+    /// <inheritdoc/>
     public override async IAsyncEnumerable<Page<T>> AsPages(string? continuationToken = default, int? pageSizeHint = default)
     {
         foreach (var page in _inner.AsPages(continuationToken, pageSizeHint))
@@ -280,6 +413,7 @@ internal sealed class AsyncEnumerablePageable<T> : AsyncPageable<T> where T : no
         _transform = transform;
     }
 
+    /// <inheritdoc/>
     public override async IAsyncEnumerable<Page<T>> AsPages(string? continuationToken = default, int? pageSizeHint = default)
     {
         var items = new List<T>();
