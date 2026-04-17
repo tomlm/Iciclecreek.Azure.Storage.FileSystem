@@ -246,18 +246,54 @@ public class FileAppendBlobClient : AppendBlobClient
     public override Stream OpenWrite(bool overwrite, AppendBlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
         => OpenWriteAsync(overwrite, options, cancellationToken).GetAwaiter().GetResult();
 
-    // ---- AppendBlockFromUri / Seal (not virtual — shadow with new) ----
-    /// <inheritdoc/>
+    // ---- AppendBlockFromUri — downloads source and appends locally ----
+    /// <summary>Appends a block by downloading content from the source URI.</summary>
+    public new async Task<Response<BlobAppendInfo>> AppendBlockFromUriAsync(Uri sourceUri, AppendBlobAppendBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
+    {
+        await using var sourceStream = await ResolveUriToStreamAsync(sourceUri, cancellationToken).ConfigureAwait(false);
+        return await AppendBlockAsync(sourceStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+    /// <summary>Appends a block by downloading content from the source URI.</summary>
     public new Response<BlobAppendInfo> AppendBlockFromUri(Uri sourceUri, AppendBlobAppendBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Response<BlobAppendInfo>>();
+        => AppendBlockFromUriAsync(sourceUri, options, cancellationToken).GetAwaiter().GetResult();
+
+    // ---- Seal (not virtual — shadow with new) ----
     /// <inheritdoc/>
-    public new Task<Response<BlobAppendInfo>> AppendBlockFromUriAsync(Uri sourceUri, AppendBlobAppendBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Task<Response<BlobAppendInfo>>>();
+    public new async Task<Response<BlobInfo>> SealAsync(AppendBlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
+    {
+        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
+            ?? throw new RequestFailedException(404, "Append blob not found.", "BlobNotFound", null);
+
+        if (conditions is not null)
+            _store.CheckConditions(sidecar, conditions.IfMatch, conditions.IfNoneMatch, mustExist: true, nameof(Seal));
+
+        sidecar.IsSealed = true;
+        sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
+        sidecar.ETag = ETagCalculator.Compute(sidecar.Length, sidecar.LastModifiedUtc, ReadOnlySpan<byte>.Empty).ToString()!;
+        await _store.WriteSidecarAsync(_blobName, sidecar, cancellationToken).ConfigureAwait(false);
+
+        var info = BlobsModelFactory.BlobInfo(new ETag(sidecar.ETag), sidecar.LastModifiedUtc);
+        return Response.FromValue(info, StubResponse.Ok());
+    }
+
     /// <inheritdoc/>
     public new Response<BlobInfo> Seal(AppendBlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Response<BlobInfo>>();
-    /// <inheritdoc/>
-    public new Task<Response<BlobInfo>> SealAsync(AppendBlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Task<Response<BlobInfo>>>();
+        => SealAsync(conditions, cancellationToken).GetAwaiter().GetResult();
 
+    private async Task<Stream> ResolveUriToStreamAsync(Uri uri, CancellationToken ct)
+    {
+        var acctName = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(uri, _account.Provider.HostnameSuffix);
+        if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
+        {
+            var (_, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(uri, _account.Provider.HostnameSuffix);
+            var srcStore = new BlobStore(srcAccount, container);
+            var srcPath = srcStore.BlobPath(blob!);
+            if (!File.Exists(srcPath))
+                throw new RequestFailedException(404, "Source blob not found.", "BlobNotFound", null);
+            return new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        }
+        using var http = new HttpClient();
+        var bytes = await http.GetByteArrayAsync(uri, ct).ConfigureAwait(false);
+        return new MemoryStream(bytes);
+    }
 }

@@ -130,19 +130,25 @@ public class FileTableServiceClient : TableServiceClient
     public override AsyncPageable<TableItem> QueryAsync(FormattableString filter, int? maxPerPage = null, CancellationToken cancellationToken = default)
         => QueryAsync(filter?.ToString(), maxPerPage, cancellationToken);
 
-    // ---- NotSupported sweep — TableServiceClient ----
+    // ---- Service properties / statistics (stub) ----
     /// <inheritdoc/>
-    public override Response<TableServiceProperties> GetProperties(CancellationToken ct = default) => NotSupported.Throw<Response<TableServiceProperties>>();
+    public override Response<TableServiceProperties> GetProperties(CancellationToken ct = default)
+        => Response.FromValue(new TableServiceProperties(), StubResponse.Ok());
     /// <inheritdoc/>
-    public override Task<Response<TableServiceProperties>> GetPropertiesAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<TableServiceProperties>>>();
+    public override async Task<Response<TableServiceProperties>> GetPropertiesAsync(CancellationToken ct = default)
+        => GetProperties(ct);
     /// <inheritdoc/>
-    public override Response SetProperties(TableServiceProperties properties, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    public override Response SetProperties(TableServiceProperties properties, CancellationToken ct = default)
+        => StubResponse.Ok();
     /// <inheritdoc/>
-    public override Task<Response> SetPropertiesAsync(TableServiceProperties properties, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    public override async Task<Response> SetPropertiesAsync(TableServiceProperties properties, CancellationToken ct = default)
+        => SetProperties(properties, ct);
     /// <inheritdoc/>
-    public override Response<TableServiceStatistics> GetStatistics(CancellationToken ct = default) => NotSupported.Throw<Response<TableServiceStatistics>>();
+    public override Response<TableServiceStatistics> GetStatistics(CancellationToken ct = default)
+        => Response.FromValue(default(TableServiceStatistics)!, StubResponse.Ok());
     /// <inheritdoc/>
-    public override Task<Response<TableServiceStatistics>> GetStatisticsAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<TableServiceStatistics>>>();
+    public override async Task<Response<TableServiceStatistics>> GetStatisticsAsync(CancellationToken ct = default)
+        => GetStatistics(ct);
 
     // ---- Remaining virtual methods ----
     /// <inheritdoc/>

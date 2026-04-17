@@ -106,38 +106,87 @@ public class FileBlobServiceClient : BlobServiceClient
     public override AsyncPageable<BlobContainerItem> GetBlobContainersAsync(BlobContainerTraits traits, string? prefix, CancellationToken cancellationToken = default)
         => new StaticAsyncPageable<BlobContainerItem>(GetBlobContainers(traits, default, prefix, cancellationToken));
 
-    // ---- NotSupported sweep — BlobServiceClient ----
+    // ---- GetProperties / SetProperties ----
+
     /// <inheritdoc/>
-    public override Response<BlobServiceProperties> GetProperties(CancellationToken ct = default) => NotSupported.Throw<Response<BlobServiceProperties>>();
+    public override Response<BlobServiceProperties> GetProperties(CancellationToken ct = default)
+        => Response.FromValue(new BlobServiceProperties(), StubResponse.Ok());
+
     /// <inheritdoc/>
-    public override Task<Response<BlobServiceProperties>> GetPropertiesAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobServiceProperties>>>();
+    public override async Task<Response<BlobServiceProperties>> GetPropertiesAsync(CancellationToken ct = default)
+    { await Task.Yield(); return GetProperties(ct); }
+
     /// <inheritdoc/>
-    public override Response SetProperties(BlobServiceProperties properties, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    public override Response SetProperties(BlobServiceProperties properties, CancellationToken ct = default)
+        => StubResponse.Ok();
+
     /// <inheritdoc/>
-    public override Task<Response> SetPropertiesAsync(BlobServiceProperties properties, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    public override async Task<Response> SetPropertiesAsync(BlobServiceProperties properties, CancellationToken ct = default)
+    { await Task.Yield(); return SetProperties(properties, ct); }
+
+    // ---- GetStatistics ----
+
     /// <inheritdoc/>
-    public override Response<BlobServiceStatistics> GetStatistics(CancellationToken ct = default) => NotSupported.Throw<Response<BlobServiceStatistics>>();
+    public override Response<BlobServiceStatistics> GetStatistics(CancellationToken ct = default)
+        => Response.FromValue(BlobsModelFactory.BlobServiceStatistics(geoReplication: null), StubResponse.Ok());
+
     /// <inheritdoc/>
-    public override Task<Response<BlobServiceStatistics>> GetStatisticsAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobServiceStatistics>>>();
+    public override async Task<Response<BlobServiceStatistics>> GetStatisticsAsync(CancellationToken ct = default)
+    { await Task.Yield(); return GetStatistics(ct); }
+
+    // ---- GetUserDelegationKey ----
+
     /// <inheritdoc/>
-    public override Response<UserDelegationKey> GetUserDelegationKey(DateTimeOffset? startsOn, DateTimeOffset expiresOn, CancellationToken ct = default) => NotSupported.Throw<Response<UserDelegationKey>>();
+    public override Response<UserDelegationKey> GetUserDelegationKey(DateTimeOffset? startsOn, DateTimeOffset expiresOn, CancellationToken ct = default)
+    {
+        // Use the (objectId, tenantId, startsOn, expiresOn, service, version, value) overload
+        var objectId = Guid.NewGuid().ToString();
+        var tenantId = Guid.NewGuid().ToString();
+        var starts = startsOn ?? DateTimeOffset.UtcNow;
+        var key = BlobsModelFactory.UserDelegationKey(objectId, tenantId, starts, expiresOn, "b", "2020-02-10", Convert.ToBase64String(new byte[32]));
+        return Response.FromValue(key, StubResponse.Ok());
+    }
+
     /// <inheritdoc/>
-    public override Task<Response<UserDelegationKey>> GetUserDelegationKeyAsync(DateTimeOffset? startsOn, DateTimeOffset expiresOn, CancellationToken ct = default) => NotSupported.Throw<Task<Response<UserDelegationKey>>>();
+    public override async Task<Response<UserDelegationKey>> GetUserDelegationKeyAsync(DateTimeOffset? startsOn, DateTimeOffset expiresOn, CancellationToken ct = default)
+    { await Task.Yield(); return GetUserDelegationKey(startsOn, expiresOn, ct); }
+
+    // ---- GetAccountInfo ----
+
     /// <inheritdoc/>
-    public override Response<AccountInfo> GetAccountInfo(CancellationToken ct = default) => NotSupported.Throw<Response<AccountInfo>>();
+    public override Response<AccountInfo> GetAccountInfo(CancellationToken ct = default)
+        => Response.FromValue(BlobsModelFactory.AccountInfo(skuName: SkuName.StandardLrs, accountKind: AccountKind.StorageV2), StubResponse.Ok());
+
     /// <inheritdoc/>
-    public override Task<Response<AccountInfo>> GetAccountInfoAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<AccountInfo>>>();
+    public override async Task<Response<AccountInfo>> GetAccountInfoAsync(CancellationToken ct = default)
+    { await Task.Yield(); return GetAccountInfo(ct); }
+
+    // ---- FindBlobsByTags ----
+
     /// <inheritdoc/>
-    public override Pageable<TaggedBlobItem> FindBlobsByTags(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<Pageable<TaggedBlobItem>>();
+    public override Pageable<TaggedBlobItem> FindBlobsByTags(string tagFilterSqlExpression, CancellationToken ct = default)
+        => new StaticPageable<TaggedBlobItem>(new List<TaggedBlobItem>());
+
     /// <inheritdoc/>
-    public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<AsyncPageable<TaggedBlobItem>>();
+    public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default)
+        => new StaticAsyncPageable<TaggedBlobItem>(new StaticPageable<TaggedBlobItem>(new List<TaggedBlobItem>()));
+
+    // ---- UndeleteBlobContainer ----
+
     /// <inheritdoc/>
-    public override Response<BlobContainerClient> UndeleteBlobContainer(string deletedContainerName, string deletedContainerVersion, CancellationToken ct = default) => NotSupported.Throw<Response<BlobContainerClient>>();
+    public override Response<BlobContainerClient> UndeleteBlobContainer(string deletedContainerName, string deletedContainerVersion, CancellationToken ct = default)
+        => throw new RequestFailedException(404, "No deleted container found.", "ContainerNotFound", null);
+
     /// <inheritdoc/>
-    public override Task<Response<BlobContainerClient>> UndeleteBlobContainerAsync(string deletedContainerName, string deletedContainerVersion, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerClient>>>();
+    public override async Task<Response<BlobContainerClient>> UndeleteBlobContainerAsync(string deletedContainerName, string deletedContainerVersion, CancellationToken ct = default)
+    { await Task.Yield(); return UndeleteBlobContainer(deletedContainerName, deletedContainerVersion, ct); }
+
     /// <inheritdoc/>
-    public override Response<BlobContainerClient> UndeleteBlobContainer(string deletedContainerName, string deletedContainerVersion, string destinationContainerName, CancellationToken ct = default) => NotSupported.Throw<Response<BlobContainerClient>>();
+    public override Response<BlobContainerClient> UndeleteBlobContainer(string deletedContainerName, string deletedContainerVersion, string destinationContainerName, CancellationToken ct = default)
+        => throw new RequestFailedException(404, "No deleted container found.", "ContainerNotFound", null);
+
     /// <inheritdoc/>
-    public override Task<Response<BlobContainerClient>> UndeleteBlobContainerAsync(string deletedContainerName, string deletedContainerVersion, string destinationContainerName, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerClient>>>();
+    public override async Task<Response<BlobContainerClient>> UndeleteBlobContainerAsync(string deletedContainerName, string deletedContainerVersion, string destinationContainerName, CancellationToken ct = default)
+    { await Task.Yield(); return UndeleteBlobContainer(deletedContainerName, deletedContainerVersion, destinationContainerName, ct); }
 
 }

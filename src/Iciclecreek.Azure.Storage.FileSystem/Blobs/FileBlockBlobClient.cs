@@ -294,30 +294,54 @@ public class FileBlockBlobClient : BlockBlobClient
         => OpenWriteAsync(overwrite, options, cancellationToken).GetAwaiter().GetResult();
 
     // ---- StageBlockFromUri (not virtual — shadow with new) ----
-    /// <inheritdoc/>
+    /// <summary>Stages a block by downloading content from the source URI.</summary>
+    public new async Task<Response<BlockInfo>> StageBlockFromUriAsync(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
+    {
+        await using var sourceStream = await ResolveUriToStreamAsync(sourceUri, cancellationToken).ConfigureAwait(false);
+        return await StageBlockAsync(base64BlockId, sourceStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+    /// <summary>Stages a block by downloading content from the source URI.</summary>
     public new Response<BlockInfo> StageBlockFromUri(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Response<BlockInfo>>();
-    /// <inheritdoc/>
-    public new Task<Response<BlockInfo>> StageBlockFromUriAsync(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Task<Response<BlockInfo>>>();
+        => StageBlockFromUriAsync(sourceUri, base64BlockId, options, cancellationToken).GetAwaiter().GetResult();
 
     // ---- NotSupported ----
     /// <inheritdoc/>
     public override Response<BlobDownloadInfo> Query(string querySqlExpression, BlobQueryOptions options = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Response<BlobDownloadInfo>>();
+        => NotSupported.ThrowWithMessage<Response<BlobDownloadInfo>>("Blob Query Acceleration is not supported by the file-backed client.");
     /// <inheritdoc/>
     public override Task<Response<BlobDownloadInfo>> QueryAsync(string querySqlExpression, BlobQueryOptions options = null!, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+        => NotSupported.ThrowWithMessage<Task<Response<BlobDownloadInfo>>>("Blob Query Acceleration is not supported by the file-backed client.");
+    /// <inheritdoc/>
+    public override async Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, bool overwrite = false, CancellationToken cancellationToken = default)
+    {
+        await using var sourceStream = await ResolveUriToStreamAsync(copySource, cancellationToken).ConfigureAwait(false);
+        var blobClient = new FileBlobClient(_account, _store.ContainerName, _blobName);
+        return await blobClient.UploadCoreAsync(sourceStream, overwrite ? null : new BlobUploadOptions { Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All } }, cancellationToken).ConfigureAwait(false);
+    }
     /// <inheritdoc/>
     public override Response<BlobContentInfo> SyncUploadFromUri(Uri copySource, bool overwrite = false, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Response<BlobContentInfo>>();
+        => SyncUploadFromUriAsync(copySource, overwrite, cancellationToken).GetAwaiter().GetResult();
     /// <inheritdoc/>
-    public override Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, bool overwrite = false, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Task<Response<BlobContentInfo>>>();
+    public override async Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, BlobSyncUploadFromUriOptions options, CancellationToken cancellationToken = default)
+        => await SyncUploadFromUriAsync(copySource, true, cancellationToken).ConfigureAwait(false);
     /// <inheritdoc/>
     public override Response<BlobContentInfo> SyncUploadFromUri(Uri copySource, BlobSyncUploadFromUriOptions options, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Response<BlobContentInfo>>();
-    /// <inheritdoc/>
-    public override Task<Response<BlobContentInfo>> SyncUploadFromUriAsync(Uri copySource, BlobSyncUploadFromUriOptions options, CancellationToken cancellationToken = default)
-        => NotSupported.Throw<Task<Response<BlobContentInfo>>>();
+        => SyncUploadFromUriAsync(copySource, options, cancellationToken).GetAwaiter().GetResult();
+
+    private async Task<Stream> ResolveUriToStreamAsync(Uri uri, CancellationToken ct)
+    {
+        var acctName = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(uri, _account.Provider.HostnameSuffix);
+        if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
+        {
+            var (_, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(uri, _account.Provider.HostnameSuffix);
+            var srcStore = new BlobStore(srcAccount, container);
+            var srcPath = srcStore.BlobPath(blob!);
+            if (!File.Exists(srcPath))
+                throw new RequestFailedException(404, "Source blob not found.", "BlobNotFound", null);
+            return new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        }
+        using var http = new HttpClient();
+        var bytes = await http.GetByteArrayAsync(uri, ct).ConfigureAwait(false);
+        return new MemoryStream(bytes);
+    }
 }

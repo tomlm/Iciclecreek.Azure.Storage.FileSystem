@@ -58,30 +58,32 @@ public class TableAdvancedFeatureTests
         Assert.That(all.Count, Is.GreaterThanOrEqualTo(1));
     }
 
-    // ---- NotSupported sweep — TableClient ----
+    // ---- Table SetAccessPolicy is a no-op ----
 
     [Test]
-    public void NotSupported_Table_SetAccessPolicy_Throws()
+    public void Table_SetAccessPolicy_NoOp()
     {
         var client = FileTableClient.FromAccount(_root.Account, "ns-table");
         client.CreateIfNotExists();
-        Assert.Throws<NotSupportedException>(() =>
+        Assert.DoesNotThrow(() =>
             client.SetAccessPolicy(Enumerable.Empty<TableSignedIdentifier>()));
     }
 
-    // ---- NotSupported sweep — TableServiceClient ----
+    // ---- TableService GetProperties / GetStatistics return stubs ----
 
     [Test]
-    public void NotSupported_TableService_GetProperties_Throws()
+    public void TableService_GetProperties_Returns_Default()
     {
         var service = FileTableServiceClient.FromAccount(_root.Account);
-        Assert.Throws<NotSupportedException>(() => service.GetProperties());
+        var props = service.GetProperties().Value;
+        Assert.That(props, Is.Not.Null);
     }
 
     [Test]
-    public void NotSupported_TableService_GetStatistics_Throws()
+    public void TableService_GetStatistics_Returns_Stub()
     {
         var service = FileTableServiceClient.FromAccount(_root.Account);
-        Assert.Throws<NotSupportedException>(() => service.GetStatistics());
+        // GetStatistics returns a stub value (may be default)
+        Assert.DoesNotThrow(() => service.GetStatistics());
     }
 }

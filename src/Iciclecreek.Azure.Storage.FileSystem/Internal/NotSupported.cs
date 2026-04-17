@@ -9,4 +9,7 @@ internal static class NotSupported
 
     public static void Throw([CallerMemberName] string memberName = "")
         => throw new NotSupportedException($"'{memberName}' is not supported by the file-backed client.");
+
+    public static T ThrowWithMessage<T>(string message)
+        => throw new NotSupportedException(message);
 }

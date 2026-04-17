@@ -29,7 +29,11 @@ internal sealed class BlobSidecar
 
     public long Length { get; set; }
 
+    public string? AccessTier { get; set; }
+
     public Dictionary<string, string> Metadata { get; set; } = new(StringComparer.Ordinal);
+
+    public bool IsSealed { get; set; }
 
     public List<CommittedBlock> CommittedBlocks { get; set; } = new();
 

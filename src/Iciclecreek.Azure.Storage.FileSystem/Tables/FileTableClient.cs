@@ -328,16 +328,20 @@ public class FileTableClient : TableClient
         return result;
     }
 
-    // ==== NotSupported sweep — TableClient ====
+    // ==== Access Policies (stub — no real ACL enforcement) ====
 
     /// <inheritdoc/>
-    public override Response<IReadOnlyList<TableSignedIdentifier>> GetAccessPolicies(CancellationToken ct = default) => NotSupported.Throw<Response<IReadOnlyList<TableSignedIdentifier>>>();
+    public override Response<IReadOnlyList<TableSignedIdentifier>> GetAccessPolicies(CancellationToken ct = default)
+        => Response.FromValue<IReadOnlyList<TableSignedIdentifier>>(new List<TableSignedIdentifier>(), StubResponse.Ok());
     /// <inheritdoc/>
-    public override Task<Response<IReadOnlyList<TableSignedIdentifier>>> GetAccessPoliciesAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<IReadOnlyList<TableSignedIdentifier>>>>();
+    public override async Task<Response<IReadOnlyList<TableSignedIdentifier>>> GetAccessPoliciesAsync(CancellationToken ct = default)
+        => GetAccessPolicies(ct);
     /// <inheritdoc/>
-    public override Response SetAccessPolicy(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    public override Response SetAccessPolicy(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default)
+        => StubResponse.Ok();
     /// <inheritdoc/>
-    public override Task<Response> SetAccessPolicyAsync(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    public override async Task<Response> SetAccessPolicyAsync(IEnumerable<TableSignedIdentifier> tableAcl, CancellationToken ct = default)
+        => SetAccessPolicy(tableAcl, ct);
 
     // ---- Remaining virtual methods ----
     /// <inheritdoc/>

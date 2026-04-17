@@ -350,23 +350,43 @@ public class FileBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasBuilder builder) => Uri;
 
-    // ---- NotSupported sweep — BlobContainerClient ----
+    // ---- Access Policy ----
+
     /// <inheritdoc/>
-    public override Response<BlobContainerAccessPolicy> GetAccessPolicy(BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Response<BlobContainerAccessPolicy>>();
+    public override Response<BlobContainerAccessPolicy> GetAccessPolicy(BlobRequestConditions conditions = default!, CancellationToken ct = default)
+        => Response.FromValue(BlobsModelFactory.BlobContainerAccessPolicy(blobPublicAccess: PublicAccessType.None, eTag: new ETag("\"0x0\""), lastModified: DateTimeOffset.UtcNow, signedIdentifiers: new List<BlobSignedIdentifier>()), StubResponse.Ok());
+
     /// <inheritdoc/>
-    public override Task<Response<BlobContainerAccessPolicy>> GetAccessPolicyAsync(BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerAccessPolicy>>>();
+    public override async Task<Response<BlobContainerAccessPolicy>> GetAccessPolicyAsync(BlobRequestConditions conditions = default!, CancellationToken ct = default)
+    { await Task.Yield(); return GetAccessPolicy(conditions, ct); }
+
     /// <inheritdoc/>
-    public override Response<BlobContainerInfo> SetAccessPolicy(PublicAccessType accessType = default, IEnumerable<BlobSignedIdentifier>? permissions = null, BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Response<BlobContainerInfo>>();
+    public override Response<BlobContainerInfo> SetAccessPolicy(PublicAccessType accessType = default, IEnumerable<BlobSignedIdentifier>? permissions = null, BlobRequestConditions conditions = default!, CancellationToken ct = default)
+        => Response.FromValue(BlobsModelFactory.BlobContainerInfo(new ETag("\"0x0\""), DateTimeOffset.UtcNow), StubResponse.Ok());
+
     /// <inheritdoc/>
-    public override Task<Response<BlobContainerInfo>> SetAccessPolicyAsync(PublicAccessType accessType = default, IEnumerable<BlobSignedIdentifier>? permissions = null, BlobRequestConditions conditions = default!, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerInfo>>>();
+    public override async Task<Response<BlobContainerInfo>> SetAccessPolicyAsync(PublicAccessType accessType = default, IEnumerable<BlobSignedIdentifier>? permissions = null, BlobRequestConditions conditions = default!, CancellationToken ct = default)
+    { await Task.Yield(); return SetAccessPolicy(accessType, permissions, conditions, ct); }
+
+    // ---- Account Info ----
+
     /// <inheritdoc/>
-    public override Response<AccountInfo> GetAccountInfo(CancellationToken ct = default) => NotSupported.Throw<Response<AccountInfo>>();
+    public override Response<AccountInfo> GetAccountInfo(CancellationToken ct = default)
+        => Response.FromValue(BlobsModelFactory.AccountInfo(skuName: SkuName.StandardLrs, accountKind: AccountKind.StorageV2), StubResponse.Ok());
+
     /// <inheritdoc/>
-    public override Task<Response<AccountInfo>> GetAccountInfoAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response<AccountInfo>>>();
+    public override async Task<Response<AccountInfo>> GetAccountInfoAsync(CancellationToken ct = default)
+    { await Task.Yield(); return GetAccountInfo(ct); }
+
+    // ---- FindBlobsByTags ----
+
     /// <inheritdoc/>
-    public override Pageable<TaggedBlobItem> FindBlobsByTags(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<Pageable<TaggedBlobItem>>();
+    public override Pageable<TaggedBlobItem> FindBlobsByTags(string tagFilterSqlExpression, CancellationToken ct = default)
+        => new StaticPageable<TaggedBlobItem>(new List<TaggedBlobItem>());
+
     /// <inheritdoc/>
-    public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<AsyncPageable<TaggedBlobItem>>();
+    public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default)
+        => new StaticAsyncPageable<TaggedBlobItem>(new StaticPageable<TaggedBlobItem>(new List<TaggedBlobItem>()));
 
     // ---- Remaining virtual methods ----
     /// <inheritdoc/>

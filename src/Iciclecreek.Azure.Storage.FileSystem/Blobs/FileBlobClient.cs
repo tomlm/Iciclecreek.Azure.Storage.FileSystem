@@ -213,7 +213,8 @@ public class FileBlobClient : BlobClient
             contentType: sidecar.ContentType ?? "application/octet-stream",
             eTag: new ETag(sidecar.ETag), contentHash: md5,
             contentEncoding: sidecar.ContentEncoding, contentDisposition: sidecar.ContentDisposition,
-            contentLanguage: sidecar.ContentLanguage, cacheControl: sidecar.CacheControl);
+            contentLanguage: sidecar.ContentLanguage, cacheControl: sidecar.CacheControl,
+            accessTier: sidecar.AccessTier);
         return Response.FromValue(props, StubResponse.Ok());
     }
 
@@ -445,46 +446,153 @@ public class FileBlobClient : BlobClient
     public override Response<BlobDownloadResult> DownloadContent(BlobRequestConditions conditions, IProgress<long>? progressHandler, HttpRange range, CancellationToken cancellationToken = default)
         => DownloadContentAsync(conditions, progressHandler, range, cancellationToken).GetAwaiter().GetResult();
 
-    // ==== NotSupported sweep — BlobClient ====
+    // ==== Download (deprecated BlobDownloadInfo API — delegates to DownloadStreaming) ====
+
+    private async Task<Response<BlobDownloadInfo>> DownloadCoreAsync(BlobRequestConditions? conditions, CancellationToken ct)
+    {
+        var streamingResult = await DownloadStreamingCoreAsync(conditions, ct).ConfigureAwait(false);
+        var d = streamingResult.Value.Details;
+        var info = BlobsModelFactory.BlobDownloadInfo(
+            lastModified: d.LastModified, blobSequenceNumber: d.BlobSequenceNumber,
+            blobType: d.BlobType, contentCrc64: null, contentLanguage: d.ContentLanguage,
+            copyStatusDescription: d.CopyStatusDescription, copyId: d.CopyId,
+            copyProgress: d.CopyProgress, copySource: d.CopySource, copyStatus: d.CopyStatus,
+            contentDisposition: d.ContentDisposition, leaseDuration: d.LeaseDuration,
+            cacheControl: d.CacheControl, leaseState: d.LeaseState, contentEncoding: d.ContentEncoding,
+            leaseStatus: d.LeaseStatus, contentHash: d.ContentHash, acceptRanges: d.AcceptRanges,
+            eTag: d.ETag, isServerEncrypted: d.IsServerEncrypted, contentRange: d.ContentRange,
+            encryptionKeySha256: d.EncryptionKeySha256, contentLength: d.ContentLength,
+            contentType: d.ContentType, content: streamingResult.Value.Content, metadata: d.Metadata);
+        return Response.FromValue(info, StubResponse.Ok());
+    }
 
     /// <inheritdoc/>
-    public override Response<BlobDownloadInfo> Download() => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    public override async Task<Response<BlobDownloadInfo>> DownloadAsync()
+        => await DownloadCoreAsync(null, default).ConfigureAwait(false);
     /// <inheritdoc/>
-    public override Response<BlobDownloadInfo> Download(CancellationToken ct) => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    public override async Task<Response<BlobDownloadInfo>> DownloadAsync(CancellationToken ct)
+        => await DownloadCoreAsync(null, ct).ConfigureAwait(false);
     /// <inheritdoc/>
-    public override Response<BlobDownloadInfo> Download(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, CancellationToken ct = default) => NotSupported.Throw<Response<BlobDownloadInfo>>();
+    public override async Task<Response<BlobDownloadInfo>> DownloadAsync(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, CancellationToken ct = default)
+        => await DownloadCoreAsync(conditions, ct).ConfigureAwait(false);
     /// <inheritdoc/>
-    public override Task<Response<BlobDownloadInfo>> DownloadAsync() => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+    public override Response<BlobDownloadInfo> Download() => DownloadAsync().GetAwaiter().GetResult();
     /// <inheritdoc/>
-    public override Task<Response<BlobDownloadInfo>> DownloadAsync(CancellationToken ct) => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+    public override Response<BlobDownloadInfo> Download(CancellationToken ct) => DownloadAsync(ct).GetAwaiter().GetResult();
     /// <inheritdoc/>
-    public override Task<Response<BlobDownloadInfo>> DownloadAsync(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobDownloadInfo>>>();
+    public override Response<BlobDownloadInfo> Download(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, CancellationToken ct = default) => DownloadAsync(range, conditions, rangeGetContentHash, ct).GetAwaiter().GetResult();
+
+    // ==== WithSnapshot / WithVersion / WithCustomerProvidedKey / WithEncryptionScope ====
+
     /// <inheritdoc/>
-    public new BlobBaseClient WithSnapshot(string snapshot) => NotSupported.Throw<BlobBaseClient>();
+    public new BlobBaseClient WithSnapshot(string snapshot) => this;
     /// <inheritdoc/>
-    public new BlobBaseClient WithVersion(string versionId) => NotSupported.Throw<BlobBaseClient>();
+    public new BlobBaseClient WithVersion(string versionId) => this;
     /// <inheritdoc/>
-    public new BlobBaseClient WithCustomerProvidedKey(CustomerProvidedKey? key) => NotSupported.Throw<BlobBaseClient>();
+    public new BlobBaseClient WithCustomerProvidedKey(CustomerProvidedKey? key) => this;
     /// <inheritdoc/>
-    public new BlobBaseClient WithEncryptionScope(string scope) => NotSupported.Throw<BlobBaseClient>();
+    public new BlobBaseClient WithEncryptionScope(string scope) => this;
+
+    // ==== SetAccessTier ====
+
     /// <inheritdoc/>
-    public override Response SetAccessTier(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    public override async Task<Response> SetAccessTierAsync(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default)
+    {
+        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
+            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(SetAccessTier));
+
+        sidecar.AccessTier = tier.ToString();
+        sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
+        await _store.WriteSidecarAsync(_blobName, sidecar, ct).ConfigureAwait(false);
+        return StubResponse.Ok();
+    }
+
     /// <inheritdoc/>
-    public override Task<Response> SetAccessTierAsync(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    public override Response SetAccessTier(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default)
+        => SetAccessTierAsync(tier, conditions, priority, ct).GetAwaiter().GetResult();
+
+    // ==== CreateSnapshot — copies blob + sidecar to a .snapshot file ====
+
     /// <inheritdoc/>
-    public override Response<BlobSnapshotInfo> CreateSnapshot(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default) => NotSupported.Throw<Response<BlobSnapshotInfo>>();
+    public override async Task<Response<BlobSnapshotInfo>> CreateSnapshotAsync(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default)
+    {
+        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
+            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(CreateSnapshot));
+
+        var snapshotId = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffZ");
+        var blobPath = _store.BlobPath(_blobName);
+        var snapPath = blobPath + $".snapshot.{snapshotId}";
+        await using (var src = new FileStream(blobPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
+        await using (var dst = new FileStream(snapPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        {
+            await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+        }
+        var info = BlobsModelFactory.BlobSnapshotInfo(snapshot: snapshotId, eTag: new ETag(sidecar.ETag), lastModified: sidecar.LastModifiedUtc, isServerEncrypted: false);
+        return Response.FromValue(info, StubResponse.Created());
+    }
+
     /// <inheritdoc/>
-    public override Task<Response<BlobSnapshotInfo>> CreateSnapshotAsync(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobSnapshotInfo>>>();
+    public override Response<BlobSnapshotInfo> CreateSnapshot(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default)
+        => CreateSnapshotAsync(metadata, conditions, ct).GetAwaiter().GetResult();
+
+    // ==== StartCopyFromUri — resolves local blobs or downloads via HttpClient ====
+
     /// <inheritdoc/>
-    public override CopyFromUriOperation StartCopyFromUri(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default) => NotSupported.Throw<CopyFromUriOperation>();
+    public override async Task<CopyFromUriOperation> StartCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
+    {
+        // Try to resolve as a local blob within this provider.
+        Stream sourceStream;
+        var acctName = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
+        if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
+        {
+            var (_, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
+            var srcStore = new BlobStore(srcAccount, container);
+            var srcPath = srcStore.BlobPath(blob!);
+            if (!File.Exists(srcPath))
+                throw new RequestFailedException(404, "Source blob not found.", "BlobNotFound", null);
+            sourceStream = new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+        }
+        else
+        {
+            using var http = new HttpClient();
+            var bytes = await http.GetByteArrayAsync(source, ct).ConfigureAwait(false);
+            sourceStream = new MemoryStream(bytes);
+        }
+
+        await using (sourceStream)
+        {
+            await UploadCoreAsync(sourceStream, new BlobUploadOptions
+            {
+                HttpHeaders = options?.SourceConditions is null ? null : null,
+                Metadata = options?.Metadata,
+            }, ct).ConfigureAwait(false);
+        }
+
+        var copyId = Guid.NewGuid().ToString();
+        return new CopyFromUriOperation(copyId, this);
+    }
+
     /// <inheritdoc/>
-    public override Task<CopyFromUriOperation> StartCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default) => NotSupported.Throw<Task<CopyFromUriOperation>>();
+    public override CopyFromUriOperation StartCopyFromUri(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
+        => StartCopyFromUriAsync(source, options, ct).GetAwaiter().GetResult();
+
+    // ==== AbortCopyFromUri — no-op ====
+
     /// <inheritdoc/>
-    public override Response AbortCopyFromUri(string copyId, BlobRequestConditions conditions = null!, CancellationToken ct = default) => NotSupported.Throw<Response>();
+    public override async Task<Response> AbortCopyFromUriAsync(string copyId, BlobRequestConditions conditions = null!, CancellationToken ct = default)
+        => StubResponse.Ok();
     /// <inheritdoc/>
-    public override Task<Response> AbortCopyFromUriAsync(string copyId, BlobRequestConditions conditions = null!, CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    public override Response AbortCopyFromUri(string copyId, BlobRequestConditions conditions = null!, CancellationToken ct = default)
+        => AbortCopyFromUriAsync(copyId, conditions, ct).GetAwaiter().GetResult();
+
+    // ==== Undelete — no-op ====
+
     /// <inheritdoc/>
-    public override Response Undelete(CancellationToken ct = default) => NotSupported.Throw<Response>();
+    public override async Task<Response> UndeleteAsync(CancellationToken ct = default)
+        => StubResponse.Ok();
     /// <inheritdoc/>
-    public override Task<Response> UndeleteAsync(CancellationToken ct = default) => NotSupported.Throw<Task<Response>>();
+    public override Response Undelete(CancellationToken ct = default)
+        => UndeleteAsync(ct).GetAwaiter().GetResult();
 }
