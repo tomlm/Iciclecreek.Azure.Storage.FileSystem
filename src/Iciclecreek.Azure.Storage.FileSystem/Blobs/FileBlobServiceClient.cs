@@ -140,7 +140,4 @@ public class FileBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override Task<Response<BlobContainerClient>> UndeleteBlobContainerAsync(string deletedContainerName, string deletedContainerVersion, string destinationContainerName, CancellationToken ct = default) => NotSupported.Throw<Task<Response<BlobContainerClient>>>();
 
-    // ---- Remaining virtual properties ----
-    /// <inheritdoc/>
-    public override bool CanGenerateAccountSasUri => false;
 }

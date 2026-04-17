@@ -368,9 +368,7 @@ public class FileBlobContainerClient : BlobContainerClient
     /// <inheritdoc/>
     public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default) => NotSupported.Throw<AsyncPageable<TaggedBlobItem>>();
 
-    // ---- Remaining virtual properties/methods ----
-    /// <inheritdoc/>
-    public override bool CanGenerateSasUri => true;
+    // ---- Remaining virtual methods ----
     /// <inheritdoc/>
     public override Uri GenerateUserDelegationSasUri(global::Azure.Storage.Sas.BlobSasBuilder builder, UserDelegationKey userDelegationKey) => Uri;
 

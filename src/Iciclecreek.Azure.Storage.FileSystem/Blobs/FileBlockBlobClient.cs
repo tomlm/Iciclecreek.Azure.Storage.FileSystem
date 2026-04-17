@@ -301,18 +301,7 @@ public class FileBlockBlobClient : BlockBlobClient
     public new Task<Response<BlockInfo>> StageBlockFromUriAsync(Uri sourceUri, string base64BlockId, StageBlockFromUriOptions options = null!, CancellationToken cancellationToken = default)
         => NotSupported.Throw<Task<Response<BlockInfo>>>();
 
-    // ---- Remaining virtual properties and methods ----
-    /// <inheritdoc/>
-    public override int BlockBlobMaxBlocks => 50000;
-    /// <inheritdoc/>
-    public override long BlockBlobMaxUploadBlobLongBytes => 5000L * 1024 * 1024 * 1024; // 5 TiB
-    /// <inheritdoc/>
-    public override long BlockBlobMaxStageBlockLongBytes => 4000L * 1024 * 1024; // 4000 MiB
-    /// <inheritdoc/>
-    public override int BlockBlobMaxUploadBlobBytes => int.MaxValue;
-    /// <inheritdoc/>
-    public override int BlockBlobMaxStageBlockBytes => int.MaxValue;
-
+    // ---- NotSupported ----
     /// <inheritdoc/>
     public override Response<BlobDownloadInfo> Query(string querySqlExpression, BlobQueryOptions options = null!, CancellationToken cancellationToken = default)
         => NotSupported.Throw<Response<BlobDownloadInfo>>();
