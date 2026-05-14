@@ -73,7 +73,7 @@ public class FileBlockBlobClient : BlockBlobClient
 
     /// <inheritdoc/>
     public override async Task<Response<BlockInfo>> StageBlockAsync(string base64BlockId, Stream content, BlockBlobStageBlockOptions options, CancellationToken cancellationToken = default)
-        => await StageBlockAsync(base64BlockId, content, null!, options?.Conditions, null, cancellationToken).ConfigureAwait(false);
+        => await StageBlockAsync(base64BlockId, content, null!, options?.Conditions!, null, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc/>
     public override Response<BlockInfo> StageBlock(string base64BlockId, Stream content, byte[] transactionalContentHash = default!, BlobRequestConditions conditions = default!, IProgress<long>? progressHandler = default, CancellationToken cancellationToken = default)

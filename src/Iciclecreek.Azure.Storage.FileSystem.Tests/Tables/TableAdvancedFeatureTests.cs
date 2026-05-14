@@ -39,7 +39,7 @@ public class TableAdvancedFeatureTests
 
         var result = await client.GetEntityIfExistsAsync<TableEntity>("pk", "rk");
         Assert.That(result.HasValue, Is.True);
-        Assert.That(result.Value["V"]?.ToString(), Is.EqualTo("found"));
+        Assert.That(result.Value!["V"]?.ToString(), Is.EqualTo("found"));
     }
 
     // ---- FormattableString query on TableServiceClient ----

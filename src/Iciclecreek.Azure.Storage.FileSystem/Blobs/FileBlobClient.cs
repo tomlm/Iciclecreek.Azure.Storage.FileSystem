@@ -363,7 +363,7 @@ public class FileBlobClient : BlobClient
 
     /// <inheritdoc/>
     public override async Task<Stream> OpenReadAsync(BlobOpenReadOptions options, CancellationToken cancellationToken = default)
-        => await OpenReadAsync(options?.Position ?? 0, options?.BufferSize, options?.Conditions, cancellationToken).ConfigureAwait(false);
+        => await OpenReadAsync(options?.Position ?? 0, options?.BufferSize, options?.Conditions!, cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc/>
     public override Stream OpenRead(BlobOpenReadOptions options, CancellationToken cancellationToken = default)
