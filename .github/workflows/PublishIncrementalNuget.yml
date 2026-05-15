@@ -20,7 +20,10 @@ jobs:
         uses: vers-one/dotnet-project-version-updater@v1.5
         with:
           files: |
-            "**/Iciclecreek.Azure.*.csproj"
+            "**/Iciclecreek.Azure.Storage.FileSystem.csproj"
+            "**/Iciclecreek.Azure.Storage.Memory.csproj"
+            "**/Iciclecreek.Azure.Storage.SQLite.csproj"
+            "**/Iciclecreek.Azure.Storage.Server.csproj"
           version: bump-build
   
       - name: Restore dependencies
