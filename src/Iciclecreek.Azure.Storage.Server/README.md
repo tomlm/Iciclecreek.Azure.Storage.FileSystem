@@ -1,3 +1,4 @@
+![icon](../../icon.png)
 # Iciclecreek.Azure.Storage.Server
 
 ASP.NET Core controllers that expose the **Azure Storage REST API** on top of any `BlobServiceClient`, `TableServiceClient`, and `QueueServiceClient` implementation. Pair with the FileSystem or SQLite provider to run a local Azure Storage-compatible server.

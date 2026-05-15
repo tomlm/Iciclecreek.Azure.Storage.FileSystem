@@ -1,3 +1,4 @@
+![icon](../../icon.png)
 # Iciclecreek.Azure.Storage.FileSystem
 
 A **filesystem-backed drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests and local development without Azurite or a live Azure account.

@@ -1,3 +1,4 @@
+![icon](icon.png)
 # Iciclecreek.Azure.Storage
 
 **Drop-in replacements** for Azure Storage SDK clients. Use the same `BlobContainerClient`, `TableClient`, and `QueueClient` types in tests and local development without Azurite or a live Azure account.
