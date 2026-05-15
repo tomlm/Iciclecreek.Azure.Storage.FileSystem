@@ -85,7 +85,7 @@ public class FileBlobServiceClient : BlobServiceClient
         if (!Directory.Exists(_account.BlobsRootPath))
             return new StaticPageable<BlobContainerItem>(items);
 
-        foreach (var dir in Directory.EnumerateDirectories(_account.BlobsRootPath))
+        foreach (var dir in Directory.EnumerateDirectories(_account.BlobsRootPath).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
         {
             var name = Path.GetFileName(dir);
             if (name.StartsWith('.') || name.StartsWith('_')) continue;

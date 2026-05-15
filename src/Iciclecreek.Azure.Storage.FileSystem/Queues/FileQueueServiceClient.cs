@@ -83,6 +83,7 @@ public class FileQueueServiceClient : QueueServiceClient
             .Select(d => Path.GetFileName(d))
             .Where(n => !string.IsNullOrEmpty(n) && !n.StartsWith('.') && !n.StartsWith('_'))
             .Where(n => prefix == null || n.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(n => n, StringComparer.Ordinal)
             .Select(n => QueuesModelFactory.QueueItem(n, metadata: null))
             .ToList();
 

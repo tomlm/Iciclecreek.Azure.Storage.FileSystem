@@ -150,10 +150,10 @@ internal sealed class BlobStore
                 if (dirName.StartsWith('.') || dirName.StartsWith('_')) continue;
             }
 
-            foreach (var sub in Directory.EnumerateDirectories(dir))
+            foreach (var sub in Directory.EnumerateDirectories(dir).OrderBy(d => d, StringComparer.Ordinal))
                 stack.Push(sub);
 
-            foreach (var file in Directory.EnumerateFiles(dir))
+            foreach (var file in Directory.EnumerateFiles(dir).OrderBy(f => f, StringComparer.Ordinal))
             {
                 var name = Path.GetFileName(file);
                 if (BlobPathEncoder.IsSidecar(name)) continue;

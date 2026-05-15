@@ -95,7 +95,7 @@ public class FileTableServiceClient : TableServiceClient
         if (!Directory.Exists(_account.TablesRootPath))
             return new StaticPageable<TableItem>(items);
 
-        foreach (var dir in Directory.EnumerateDirectories(_account.TablesRootPath))
+        foreach (var dir in Directory.EnumerateDirectories(_account.TablesRootPath).OrderBy(d => Path.GetFileName(d), StringComparer.Ordinal))
         {
             var name = Path.GetFileName(dir);
             if (name.StartsWith('.') || name.StartsWith('_')) continue;

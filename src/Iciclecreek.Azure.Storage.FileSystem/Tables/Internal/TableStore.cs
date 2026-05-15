@@ -133,12 +133,12 @@ internal sealed class TableStore
     {
         if (!Directory.Exists(TablePath)) yield break;
 
-        foreach (var pkDir in Directory.EnumerateDirectories(TablePath))
+        foreach (var pkDir in Directory.EnumerateDirectories(TablePath).OrderBy(d => d, StringComparer.Ordinal))
         {
             var dirName = Path.GetFileName(pkDir);
             if (dirName.StartsWith('.') || dirName.StartsWith('_')) continue;
 
-            foreach (var file in Directory.EnumerateFiles(pkDir, "*.json"))
+            foreach (var file in Directory.EnumerateFiles(pkDir, "*.json").OrderBy(f => f, StringComparer.Ordinal))
             {
                 TableEntity? entity = null;
                 try
