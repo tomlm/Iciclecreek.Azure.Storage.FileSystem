@@ -1,6 +1,7 @@
 ![icon](../../icon.png)
-# Iciclecreek.Azure.Storage.SQLite
+[![Build](https://github.com/tomlm/Iciclecreek.Azure.Storage/actions/workflows/BuildAndRunTests.yml/badge.svg)](https://github.com/tomlm/Iciclecreek.Azure.Storage/actions/workflows/BuildAndRunTests.yml) [![NuGet](https://img.shields.io/nuget/v/Iciclecreek.Azure.Storage.SQLite.svg)](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.SQLite)
 
+# Iciclecreek.Azure.Storage.SQLite
 A **SQLite-backed drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests and local development without Azurite or a live Azure account.
 
 Each storage account is a single `.db` file -- portable, atomic, and easy to manage.

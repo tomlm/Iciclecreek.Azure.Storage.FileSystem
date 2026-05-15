@@ -1,6 +1,7 @@
 ![icon](../../icon.png)
-# Iciclecreek.Azure.Storage.Server
+[![Build](https://github.com/tomlm/Iciclecreek.Azure.Storage/actions/workflows/BuildAndRunTests.yml/badge.svg)](https://github.com/tomlm/Iciclecreek.Azure.Storage/actions/workflows/BuildAndRunTests.yml) [![NuGet](https://img.shields.io/nuget/v/Iciclecreek.Azure.Storage.Server.svg)](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Server)
 
+# Iciclecreek.Azure.Storage.Server
 ASP.NET Core controllers that expose the **Azure Storage REST API** on top of any `BlobServiceClient`, `TableServiceClient`, and `QueueServiceClient` implementation. Pair with the FileSystem or SQLite provider to run a local Azure Storage-compatible server.
 
 ## Installation

@@ -1,6 +1,7 @@
 ![icon](../../icon.png)
-# Iciclecreek.Azure.Storage.Memory
+[![Build](https://github.com/tomlm/Iciclecreek.Azure.Storage/actions/workflows/BuildAndRunTests.yml/badge.svg)](https://github.com/tomlm/Iciclecreek.Azure.Storage/actions/workflows/BuildAndRunTests.yml) [![NuGet](https://img.shields.io/nuget/v/Iciclecreek.Azure.Storage.Memory.svg)](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Memory)
 
+# Iciclecreek.Azure.Storage.Memory
 A **thread-safe, in-memory drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests without any disk I/O, databases, or external services.
 
 Objects returned from reads are deep-cloned to properly simulate network storage semantics — no shared references, no accidental cache hits.
