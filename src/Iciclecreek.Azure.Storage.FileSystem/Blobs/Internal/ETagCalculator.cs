@@ -13,10 +13,11 @@ internal static class ETagCalculator
         if (!md5.IsEmpty && md5.Length <= 16)
             md5.CopyTo(buffer[16..]);
 
-        Span<byte> hash = stackalloc byte[32];
-        SHA256.HashData(buffer, hash);
+        byte[] hashBytes;
+        using (var sha256 = SHA256.Create())
+            hashBytes = sha256.ComputeHash(buffer.ToArray());
 
-        var hex = Convert.ToHexString(hash[..8]); // 16 hex chars
+        var hex = BitConverter.ToString(hashBytes, 0, 8).Replace("-", ""); // 16 hex chars
         return new ETag($"\"0x{hex}\"");
     }
 }

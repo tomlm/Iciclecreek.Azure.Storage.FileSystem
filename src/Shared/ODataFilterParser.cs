@@ -219,5 +219,9 @@ internal static class ODataFilterParser
         return tokens;
     }
 
-    private record Token(string Value);
+    private struct Token
+    {
+        public string Value { get; }
+        public Token(string value) => Value = value;
+    }
 }

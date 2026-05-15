@@ -2,6 +2,7 @@ using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Iciclecreek.Azure.Storage.FileSystem.Internal;
+using System.Linq;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
 
@@ -213,7 +214,8 @@ public class FileBlobServiceClient : BlobServiceClient
         if (string.IsNullOrWhiteSpace(filter)) return result;
 
         // Split on AND (case-insensitive)
-        var parts = filter.Split(new[] { " AND ", " and " }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var parts = filter.Split(new[] { " AND ", " and " }, StringSplitOptions.RemoveEmptyEntries)
+                          .Select(p => p.Trim());
         foreach (var part in parts)
         {
             // Parse: key = 'value'

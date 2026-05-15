@@ -69,7 +69,9 @@ internal sealed class CommitOnCloseStream : Stream
         else
             File.Move(_tmpPath, blobPath);
 
-        var md5 = MD5.HashData(await File.ReadAllBytesAsync(blobPath).ConfigureAwait(false));
+        byte[] md5;
+        using (var _md5 = MD5.Create())
+            md5 = _md5.ComputeHash(await File.ReadAllBytesAsync(blobPath).ConfigureAwait(false));
         var now = DateTimeOffset.UtcNow;
         var etag = ETagCalculator.Compute(length, now, md5);
 

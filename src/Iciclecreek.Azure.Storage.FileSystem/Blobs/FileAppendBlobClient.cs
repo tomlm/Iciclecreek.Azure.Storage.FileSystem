@@ -157,7 +157,9 @@ public class FileAppendBlobClient : AppendBlobClient
         if (options?.Conditions?.IfMaxSizeLessThanOrEqual is { } maxSize && newLength > maxSize)
             throw new RequestFailedException(412, $"Blob size {newLength} exceeds MaxSize {maxSize}.", "MaxBlobSizeConditionNotMet", null);
 
-        var md5 = MD5.HashData(await File.ReadAllBytesAsync(blobPath, cancellationToken).ConfigureAwait(false));
+        byte[] md5;
+        using (var _md5 = MD5.Create())
+            md5 = _md5.ComputeHash(await File.ReadAllBytesAsync(blobPath, cancellationToken).ConfigureAwait(false));
         var now = DateTimeOffset.UtcNow;
         var etag = ETagCalculator.Compute(newLength, now, md5);
 
@@ -293,7 +295,7 @@ public class FileAppendBlobClient : AppendBlobClient
             return new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
         }
         using var http = new HttpClient();
-        var bytes = await http.GetByteArrayAsync(uri, ct).ConfigureAwait(false);
+        var bytes = await http.GetByteArrayAsync(uri.ToString()).ConfigureAwait(false);
         return new MemoryStream(bytes);
     }
 }

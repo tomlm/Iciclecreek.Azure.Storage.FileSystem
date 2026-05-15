@@ -341,7 +341,7 @@ public class FileBlockBlobClient : BlockBlobClient
             return new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
         }
         using var http = new HttpClient();
-        var bytes = await http.GetByteArrayAsync(uri, ct).ConfigureAwait(false);
+        var bytes = await http.GetByteArrayAsync(uri).ConfigureAwait(false);
         return new MemoryStream(bytes);
     }
 }

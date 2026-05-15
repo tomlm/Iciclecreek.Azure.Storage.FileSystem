@@ -570,7 +570,7 @@ public class FileBlobClient : BlobClient
         else
         {
             using var http = new HttpClient();
-            var bytes = await http.GetByteArrayAsync(source, ct).ConfigureAwait(false);
+            var bytes = await http.GetByteArrayAsync(source).ConfigureAwait(false);
             sourceStream = new MemoryStream(bytes);
         }
 
