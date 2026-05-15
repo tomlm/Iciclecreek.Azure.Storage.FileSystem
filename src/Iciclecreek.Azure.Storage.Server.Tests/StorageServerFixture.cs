@@ -1,3 +1,4 @@
+using System.Net;
 using Azure.Data.Tables;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
@@ -8,6 +9,8 @@ using Iciclecreek.Azure.Storage.FileSystem.Tables;
 using Iciclecreek.Azure.Storage.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -15,14 +18,12 @@ namespace Iciclecreek.Azure.Storage.Server.Tests;
 
 /// <summary>
 /// Starts a real Kestrel-based storage server backed by the FileSystem provider.
+/// Uses port 0 (OS-assigned) to avoid conflicts when tests run in parallel.
 /// Shared across all tests in the assembly via [SetUpFixture].
 /// </summary>
 [SetUpFixture]
 public class StorageServerFixture
 {
-    public const int BlobPort = 17000;
-    public const int QueuePort = 17001;
-    public const int TablePort = 17002;
     public const string AccountName = "testaccount1";
 
     private static WebApplication? _app;
@@ -40,10 +41,6 @@ public class StorageServerFixture
 
         var builder = WebApplication.CreateBuilder();
 
-        builder.Configuration["BlobPort"] = BlobPort.ToString();
-        builder.Configuration["QueuePort"] = QueuePort.ToString();
-        builder.Configuration["TablePort"] = TablePort.ToString();
-
         builder.Services.AddSingleton<BlobServiceClient>(
             FileBlobServiceClient.FromAccount(account));
         builder.Services.AddSingleton<QueueServiceClient>(
@@ -53,11 +50,12 @@ public class StorageServerFixture
 
         builder.Services.AddStorageServer();
 
+        // Use port 0 so the OS assigns free ports — avoids conflicts in parallel test runs
         builder.WebHost.ConfigureKestrel(k =>
         {
-            k.ListenLocalhost(BlobPort);
-            k.ListenLocalhost(QueuePort);
-            k.ListenLocalhost(TablePort);
+            k.Listen(IPAddress.Loopback, 0);
+            k.Listen(IPAddress.Loopback, 0);
+            k.Listen(IPAddress.Loopback, 0);
         });
 
         builder.Logging.ClearProviders();
@@ -69,9 +67,23 @@ public class StorageServerFixture
 
         await _app.StartAsync();
 
-        BlobHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{BlobPort}") };
-        QueueHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{QueuePort}") };
-        TableHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{TablePort}") };
+        // Read back the OS-assigned ports
+        var server = _app.Services.GetRequiredService<IServer>();
+        var addresses = server.Features.Get<IServerAddressesFeature>()!
+            .Addresses.Select(a => new Uri(a)).OrderBy(u => u.Port).ToArray();
+
+        var blobPort = addresses[0].Port;
+        var queuePort = addresses[1].Port;
+        var tablePort = addresses[2].Port;
+
+        // Tell the server which port maps to which service (read at request time by ServicePortConstraint)
+        _app.Configuration["BlobPort"] = blobPort.ToString();
+        _app.Configuration["QueuePort"] = queuePort.ToString();
+        _app.Configuration["TablePort"] = tablePort.ToString();
+
+        BlobHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{blobPort}") };
+        QueueHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{queuePort}") };
+        TableHttp = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{tablePort}") };
     }
 
     [OneTimeTearDown]

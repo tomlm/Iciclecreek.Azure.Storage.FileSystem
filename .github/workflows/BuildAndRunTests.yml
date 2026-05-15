@@ -32,4 +32,4 @@ jobs:
       run: dotnet build --no-restore src/Iciclecreek.Azure.Storage.slnx --property WarningLevel=0
       
     - name: Test
-      run: dotnet test --no-build --verbosity normal src/Iciclecreek.Azure.Storage.slnx -- RunConfiguration.DisableParallelization=true
+      run: dotnet test --no-build --verbosity normal src/Iciclecreek.Azure.Storage.slnx
