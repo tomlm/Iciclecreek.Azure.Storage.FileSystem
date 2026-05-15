@@ -1,41 +1,45 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.1</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <RootNamespace>Iciclecreek.Azure.Storage.Memory</RootNamespace>
   </PropertyGroup>
-
+  
   <PropertyGroup>
     <Version>1.0.0</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <Description>In-memory drop-in replacement for Azure.Storage.Blobs, Azure.Data.Tables, and Azure.Storage.Queues SDK clients. Thread-safe with ETag concurrency and deep-clone semantics.</Description>
+    <Description>This library implements a drop in replacement for Azure.Data.Tables TableClient that uses local file system to implement blob and table API</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/tomlm/Iciclecreek.Azure.Storage</PackageProjectUrl>
+    <PackageIconUrl>https://raw.githubusercontent.com/tomlm/Iciclecreek.Azure.Storage/master/icon.png</PackageIconUrl>
     <PackageIcon>icon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <RepositoryUrl>https://github.com/tomlm/Iciclecreek.Azure.Storage</RepositoryUrl>
     <Copyright>Tom Laird-McConnell All Rights Reserved</Copyright>
+    <RootNamespace>Iciclecreek.Azure.Storage.FileSystem</RootNamespace>
     <ContentTargetFolders>content</ContentTargetFolders>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="" />
-    <None Include="../../icon.png" Pack="true" PackagePath="" />
+    <None Include="../../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
+
 
   <ItemGroup>
     <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.28.0" />
     <PackageReference Include="Azure.Storage.Queues" Version="12.26.0" />
   </ItemGroup>
+
 
   <ItemGroup>
     <Compile Include="..\Shared\*.cs" Link="Internal\Shared\%(Filename)%(Extension)" />

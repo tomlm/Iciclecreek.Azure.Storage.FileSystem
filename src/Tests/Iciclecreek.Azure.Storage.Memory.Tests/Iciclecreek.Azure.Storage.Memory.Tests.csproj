@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Iciclecreek.Azure.Storage.FileSystem\Iciclecreek.Azure.Storage.FileSystem.csproj" />
+    <ProjectReference Include="..\..\Libraries\Iciclecreek.Azure.Storage.Memory\Iciclecreek.Azure.Storage.Memory.csproj" />
     <ProjectReference Include="..\Iciclecreek.Azure.Storage.Tests.Shared\Iciclecreek.Azure.Storage.Tests.Shared.csproj" />
   </ItemGroup>
 

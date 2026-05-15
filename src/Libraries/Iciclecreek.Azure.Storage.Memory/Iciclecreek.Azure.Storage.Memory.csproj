@@ -1,17 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>netstandard2.1</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <RootNamespace>Iciclecreek.Azure.Storage.Server</RootNamespace>
+    <RootNamespace>Iciclecreek.Azure.Storage.Memory</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup>
     <Version>1.0.0</Version>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <Description>ASP.NET Core controllers that expose the Azure Storage REST API on top of any BlobServiceClient, TableServiceClient, and QueueServiceClient implementation.</Description>
+    <Description>In-memory drop-in replacement for Azure.Storage.Blobs, Azure.Data.Tables, and Azure.Storage.Queues SDK clients. Thread-safe with ETag concurrency and deep-clone semantics.</Description>
     <Company>Iciclecreek</Company>
     <Authors>Tom Laird-McConnell</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -28,14 +28,21 @@
 
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="" />
-    <None Include="../../icon.png" Pack="true" PackagePath="" />
+    <None Include="../../../icon.png" Pack="true" PackagePath="" />
   </ItemGroup>
 
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Azure.Data.Tables" Version="12.11.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.28.0" />
     <PackageReference Include="Azure.Storage.Queues" Version="12.26.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Shared\*.cs" Link="Internal\Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Iciclecreek.Azure.Storage.Internal" />
   </ItemGroup>
 
 </Project>

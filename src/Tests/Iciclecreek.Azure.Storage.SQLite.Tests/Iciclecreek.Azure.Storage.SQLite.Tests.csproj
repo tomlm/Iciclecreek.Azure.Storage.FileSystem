@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Iciclecreek.Azure.Storage.Memory\Iciclecreek.Azure.Storage.Memory.csproj" />
+    <ProjectReference Include="..\..\Libraries\Iciclecreek.Azure.Storage.SQLite\Iciclecreek.Azure.Storage.SQLite.csproj" />
     <ProjectReference Include="..\Iciclecreek.Azure.Storage.Tests.Shared\Iciclecreek.Azure.Storage.Tests.Shared.csproj" />
   </ItemGroup>
 

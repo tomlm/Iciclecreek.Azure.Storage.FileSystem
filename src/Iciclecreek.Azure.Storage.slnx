@@ -1,14 +1,16 @@
 <Solution>
-  <Folder Name="/Tests/">
-    <Project Path="Iciclecreek.Azure.Storage.FileSystem.Tests/Iciclecreek.Azure.Storage.FileSystem.Tests.csproj" />
-    <Project Path="Iciclecreek.Azure.Storage.Server.Tests/Iciclecreek.Azure.Storage.Server.Tests.csproj" />
-    <Project Path="Iciclecreek.Azure.Storage.SQLite.Tests/Iciclecreek.Azure.Storage.SQLite.Tests.csproj" />
-    <Project Path="Iciclecreek.Azure.Storage.Memory.Tests/Iciclecreek.Azure.Storage.Memory.Tests.csproj" />
-    <Project Path="Iciclecreek.Azure.Storage.Tests.Shared/Iciclecreek.Azure.Storage.Tests.Shared.csproj" />
+  <Folder Name="/Libraries/">
+    <Project Path="Libraries/Iciclecreek.Azure.Storage.FileSystem/Iciclecreek.Azure.Storage.FileSystem.csproj" />
+    <Project Path="Libraries/Iciclecreek.Azure.Storage.Memory/Iciclecreek.Azure.Storage.Memory.csproj" />
+    <Project Path="Libraries/Iciclecreek.Azure.Storage.Server/Iciclecreek.Azure.Storage.Server.csproj" />
+    <Project Path="Libraries/Iciclecreek.Azure.Storage.SQLite/Iciclecreek.Azure.Storage.SQLite.csproj" />
   </Folder>
-  <Project Path="Iciclecreek.Azure.Storage.FileSystem/Iciclecreek.Azure.Storage.FileSystem.csproj" />
-  <Project Path="Iciclecreek.Azure.Storage.Server/Iciclecreek.Azure.Storage.Server.csproj" />
-  <Project Path="Iciclecreek.Azure.Storage.SQLite/Iciclecreek.Azure.Storage.SQLite.csproj" />
-  <Project Path="Iciclecreek.Azure.Storage.Memory/Iciclecreek.Azure.Storage.Memory.csproj" />
+  <Folder Name="/Tests/">
+    <Project Path="Tests/Iciclecreek.Azure.Storage.FileSystem.Tests/Iciclecreek.Azure.Storage.FileSystem.Tests.csproj" />
+    <Project Path="Tests/Iciclecreek.Azure.Storage.Memory.Tests/Iciclecreek.Azure.Storage.Memory.Tests.csproj" />
+    <Project Path="Tests/Iciclecreek.Azure.Storage.Server.Tests/Iciclecreek.Azure.Storage.Server.Tests.csproj" />
+    <Project Path="Tests/Iciclecreek.Azure.Storage.SQLite.Tests/Iciclecreek.Azure.Storage.SQLite.Tests.csproj" />
+    <Project Path="Tests/Iciclecreek.Azure.Storage.Tests.Shared/Iciclecreek.Azure.Storage.Tests.Shared.csproj" />
+  </Folder>
   <Project Path="TestServer/TestServer.csproj" />
 </Solution>
