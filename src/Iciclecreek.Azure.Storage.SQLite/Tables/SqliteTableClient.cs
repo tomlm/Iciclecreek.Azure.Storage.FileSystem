@@ -398,10 +398,10 @@ public class SqliteTableClient : TableClient
 
             tx.Commit();
         }
-        catch (RequestFailedException)
+        catch (RequestFailedException ex)
         {
             tx.Rollback();
-            throw;
+            throw new TableTransactionFailedException(ex);
         }
         catch (Exception ex)
         {

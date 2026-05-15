@@ -180,6 +180,19 @@ public class SqliteBlobClient : BlobClient
     public override async Task<Response> DeleteAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
         using var conn = _account.Db.Open();
+
+        // Check IfMatch condition
+        if (conditions?.IfMatch is not null && conditions.IfMatch != ETag.All)
+        {
+            using var matchCmd = conn.CreateCommand();
+            matchCmd.CommandText = "SELECT ETag FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+            matchCmd.Parameters.AddWithValue("@container", _containerName);
+            matchCmd.Parameters.AddWithValue("@blob", _blobName);
+            var currentEtag = matchCmd.ExecuteScalar() as string;
+            if (currentEtag is null || conditions.IfMatch.ToString() != currentEtag)
+                throw new RequestFailedException(412, "Condition not met.", "ConditionNotMet", null);
+        }
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
         cmd.Parameters.AddWithValue("@container", _containerName);
@@ -280,6 +293,19 @@ public class SqliteBlobClient : BlobClient
         var etag = $"\"0x{Guid.NewGuid():N}\"";
 
         using var conn = _account.Db.Open();
+
+        // Check IfMatch condition
+        if (conditions?.IfMatch is not null && conditions.IfMatch != ETag.All)
+        {
+            using var matchCmd = conn.CreateCommand();
+            matchCmd.CommandText = "SELECT ETag FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+            matchCmd.Parameters.AddWithValue("@container", _containerName);
+            matchCmd.Parameters.AddWithValue("@blob", _blobName);
+            var currentEtag = matchCmd.ExecuteScalar() as string;
+            if (currentEtag is null || conditions.IfMatch.ToString() != currentEtag)
+                throw new RequestFailedException(412, "Condition not met.", "ConditionNotMet", null);
+        }
+
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE Blobs SET Metadata = @metadata, LastModified = @lastModified, ETag = @etag WHERE ContainerName = @container AND BlobName = @blob";
         cmd.Parameters.AddWithValue("@metadata", JsonSerializer.Serialize(metadata));
@@ -366,6 +392,18 @@ public class SqliteBlobClient : BlobClient
             checkCmd.Parameters.AddWithValue("@blob", _blobName);
             if ((long)checkCmd.ExecuteScalar()! > 0)
                 throw new RequestFailedException(409, "Blob already exists.", "BlobAlreadyExists", null);
+        }
+
+        // Check IfMatch (conditional update — ETag must match current)
+        if (conditions?.IfMatch is not null && conditions.IfMatch != ETag.All)
+        {
+            using var matchCmd = conn.CreateCommand();
+            matchCmd.CommandText = "SELECT ETag FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+            matchCmd.Parameters.AddWithValue("@container", _containerName);
+            matchCmd.Parameters.AddWithValue("@blob", _blobName);
+            var currentEtag = matchCmd.ExecuteScalar() as string;
+            if (currentEtag is null || conditions.IfMatch.ToString() != currentEtag)
+                throw new RequestFailedException(412, "Condition not met.", "ConditionNotMet", null);
         }
 
         // Save previous version if blob exists
@@ -494,6 +532,24 @@ public class SqliteBlobClient : BlobClient
     /// <inheritdoc/>
     public override Stream OpenRead(BlobOpenReadOptions options, CancellationToken cancellationToken = default)
         => OpenReadAsync(options, cancellationToken).GetAwaiter().GetResult();
+
+    // ==== OpenWrite ====
+
+    /// <inheritdoc/>
+    public override async Task<Stream> OpenWriteAsync(bool overwrite, BlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        if (!overwrite)
+        {
+            var exists = await ExistsAsync(cancellationToken).ConfigureAwait(false);
+            if (exists.Value)
+                throw new RequestFailedException(409, "Blob already exists and overwrite is false.", "BlobAlreadyExists", null);
+        }
+        return new SqliteCommitOnCloseStream(this, options?.HttpHeaders, options?.Metadata);
+    }
+
+    /// <inheritdoc/>
+    public override Stream OpenWrite(bool overwrite, BlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
+        => OpenWriteAsync(overwrite, options, cancellationToken).GetAwaiter().GetResult();
 
     // ==== DownloadStreaming additional overloads ====
 
