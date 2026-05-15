@@ -16,14 +16,14 @@ jobs:
           dotnet-version: 10.0.x
   
       - name: Restore dependencies
-        run: dotnet restore src/Iciclecreek.Azure.Storage.FileSystem.slnx
+        run: dotnet restore src/Iciclecreek.Azure.Storage.slnx
 
       - name: Build
-        run: dotnet build src/Iciclecreek.Azure.Storage.FileSystem.slnx -c Release --no-restore 
+        run: dotnet build src/Iciclecreek.Azure.Storage -c Release --no-restore 
   
       - name: dotnet pack 
         run: |
-          dotnet pack --no-build src/Iciclecreek.Azure.Storage.FileSystem.slnx -c Release -o packages --include-symbols --property WarningLevel=0
+          dotnet pack --no-build src/Iciclecreek.Azure.Storage.slnx -c Release -o packages --include-symbols --property WarningLevel=0
 
       - name: Publish NuGet and symbols
         id: nuget-push

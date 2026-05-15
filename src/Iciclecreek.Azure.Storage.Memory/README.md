@@ -1,13 +1,13 @@
-# Iciclecreek.Azure.Storage.FileSystem
+# Iciclecreek.Azure.Storage.Memory
 
-A **filesystem-backed drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests and local development without Azurite or a live Azure account.
+A **thread-safe, in-memory drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests without any disk I/O, databases, or external services.
 
-State is stored as real files on disk -- human-inspectable and survives process restarts.
+Objects returned from reads are deep-cloned to properly simulate network storage semantics — no shared references, no accidental cache hits.
 
 ## Installation
 
 ```
-dotnet add package Iciclecreek.Azure.Storage.FileSystem
+dotnet add package Iciclecreek.Azure.Storage.Memory
 ```
 
 ## Usage
@@ -15,19 +15,19 @@ dotnet add package Iciclecreek.Azure.Storage.FileSystem
 ### Create a provider and account
 
 ```csharp
-using Iciclecreek.Azure.Storage.FileSystem;
-using Iciclecreek.Azure.Storage.FileSystem.Blobs;
-using Iciclecreek.Azure.Storage.FileSystem.Tables;
-using Iciclecreek.Azure.Storage.FileSystem.Queues;
+using Iciclecreek.Azure.Storage.Memory;
+using Iciclecreek.Azure.Storage.Memory.Blobs;
+using Iciclecreek.Azure.Storage.Memory.Tables;
+using Iciclecreek.Azure.Storage.Memory.Queues;
 
-var provider = new FileStorageProvider(@"C:\temp\my-storage");
+var provider = new MemoryStorageProvider();
 var account  = provider.AddAccount("devaccount");
 ```
 
 ### Blobs
 
 ```csharp
-BlobContainerClient container = FileBlobContainerClient.FromAccount(account, "my-container");
+BlobContainerClient container = MemoryBlobContainerClient.FromAccount(account, "my-container");
 await container.CreateIfNotExistsAsync();
 
 BlobClient blob = container.GetBlobClient("hello.txt");
@@ -40,7 +40,7 @@ Console.WriteLine(result.Content.ToString()); // "Hello, World!"
 ### Tables
 
 ```csharp
-TableClient table = FileTableClient.FromAccount(account, "people");
+TableClient table = MemoryTableClient.FromAccount(account, "people");
 await table.CreateIfNotExistsAsync();
 
 await table.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice" });
@@ -50,7 +50,7 @@ var entity = (await table.GetEntityAsync<TableEntity>("users", "alice")).Value;
 ### Queues
 
 ```csharp
-QueueClient queue = FileQueueClient.FromAccount(account, "tasks");
+QueueClient queue = MemoryQueueClient.FromAccount(account, "tasks");
 queue.Create();
 
 queue.SendMessage("do the thing");
@@ -60,7 +60,7 @@ Console.WriteLine(msg.Body.ToString()); // "do the thing"
 
 ### Swap in via dependency injection
 
-Every `File*` client inherits from its Azure SDK base type:
+Every `Memory*` client inherits from its Azure SDK base type:
 
 ```csharp
 // Production
@@ -68,17 +68,17 @@ services.AddSingleton<BlobContainerClient>(
     new BlobContainerClient(connectionString, "images"));
 
 // Test
-var provider = new FileStorageProvider(testDir);
+var provider = new MemoryStorageProvider();
 var account  = provider.AddAccount("test");
 services.AddSingleton<BlobContainerClient>(
-    FileBlobContainerClient.FromAccount(account, "images"));
+    MemoryBlobContainerClient.FromAccount(account, "images"));
 ```
 
 ## Related Packages
 
 | Package | Description |
 |---------|-------------|
-| [Iciclecreek.Azure.Storage.Memory](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Memory) | Thread-safe in-memory implementation (fastest, no I/O) |
+| [Iciclecreek.Azure.Storage.FileSystem](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.FileSystem) | Filesystem-backed implementation (files on disk) |
 | [Iciclecreek.Azure.Storage.SQLite](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.SQLite) | SQLite-backed implementation (single .db file per account) |
 | [Iciclecreek.Azure.Storage.Server](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Server) | ASP.NET Core REST API server on top of any provider |
 

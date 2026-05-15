@@ -55,6 +55,7 @@ builder.Services.AddSingleton(SqliteQueueServiceClient.FromAccount(account));
 
 | Package | Description |
 |---------|-------------|
+| [Iciclecreek.Azure.Storage.Memory](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Memory) | Thread-safe in-memory blobs, tables, and queues |
 | [Iciclecreek.Azure.Storage.FileSystem](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.FileSystem) | Filesystem-backed blobs, tables, and queues |
 | [Iciclecreek.Azure.Storage.SQLite](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.SQLite) | SQLite-backed blobs, tables, and queues |
 
