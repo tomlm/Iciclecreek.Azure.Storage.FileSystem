@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Iciclecreek.Azure.Storage.FileSystem.Blobs.Internal;
 
-internal enum BlobKind { Block, Append }
+internal enum BlobKind { Block, Append, Page }
 
 internal sealed class BlobSidecar
 {
@@ -35,6 +35,31 @@ internal sealed class BlobSidecar
 
     public bool IsSealed { get; set; }
 
+    public Dictionary<string, string> Tags { get; set; } = new(StringComparer.Ordinal);
+
+    // ── Lease state ─────────────────────────────────────────────────────
+
+    public string? LeaseId { get; set; }
+
+    public DateTimeOffset? LeaseExpiresOn { get; set; }
+
+    public int LeaseDurationSeconds { get; set; }
+
+    [JsonIgnore]
+    public bool IsLeased =>
+        LeaseId != null &&
+        (LeaseDurationSeconds == -1 || (LeaseExpiresOn.HasValue && LeaseExpiresOn.Value > DateTimeOffset.UtcNow));
+
+    // ── Page blob ────────────────────────────────────────────────────────
+
+    public long SequenceNumber { get; set; }
+
+    public List<PageRange> PageRanges { get; set; } = new();
+
+    // ── Version ─────────────────────────────────────────────────────────
+
+    public string? VersionId { get; set; }
+
     public List<CommittedBlock> CommittedBlocks { get; set; } = new();
 
     public static async Task<BlobSidecar?> ReadFromFileAsync(string path, JsonSerializerOptions options, CancellationToken ct = default)
@@ -54,6 +79,12 @@ internal sealed class BlobSidecar
     }
 }
 
+internal sealed class PageRange
+{
+    public long Offset { get; set; }
+    public long Length { get; set; }
+}
+
 internal sealed class CommittedBlock
 {
     public string Id { get; set; } = "";
@@ -61,5 +92,6 @@ internal sealed class CommittedBlock
 }
 
 [JsonSerializable(typeof(BlobSidecar))]
+[JsonSerializable(typeof(PageRange))]
 [JsonSerializable(typeof(CommittedBlock))]
 internal partial class BlobSidecarJsonContext : JsonSerializerContext { }

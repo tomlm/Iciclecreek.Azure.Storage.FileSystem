@@ -1,65 +1,54 @@
+using System.Security.Cryptography;
+using System.Text.Json;
 using Azure;
 using Azure.Storage;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Blobs.Specialized;
-using Iciclecreek.Azure.Storage.FileSystem.Blobs.Internal;
-using Iciclecreek.Azure.Storage.FileSystem.Internal;
+using Iciclecreek.Azure.Storage.SQLite.Internal;
 
-namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
+namespace Iciclecreek.Azure.Storage.SQLite.Blobs;
 
-/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Storage.Blobs.BlobClient"/>. Stores blob data as files on disk with JSON sidecar metadata.</summary>
-public class FileBlobClient : BlobClient
+/// <summary>SQLite-backed drop-in replacement for <see cref="BlobClient"/>.</summary>
+public class SqliteBlobClient : BlobClient
 {
-    internal readonly BlobStore _store;
+    internal readonly SqliteStorageAccount _account;
+    internal readonly string _containerName;
     internal readonly string _blobName;
-    internal readonly FileStorageAccount _account;
 
-    /// <summary>Initializes a new <see cref="FileBlobClient"/> from a connection string, container name, blob name, and provider.</summary>
-    /// <param name="connectionString">The storage connection string.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="blobName">The name of the blob.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobClient(string connectionString, string containerName, string blobName, FileStorageProvider provider) : base()
+    public SqliteBlobClient(string connectionString, string containerName, string blobName, SqliteStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
-        _store = new BlobStore(_account, containerName);
+        _containerName = containerName;
         _blobName = blobName;
     }
 
-    /// <summary>Initializes a new <see cref="FileBlobClient"/> by parsing a blob URI against the given provider.</summary>
-    /// <param name="blobUri">The blob URI to parse.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobClient(Uri blobUri, FileStorageProvider provider) : base()
+    public SqliteBlobClient(Uri blobUri, SqliteStorageProvider provider) : base()
     {
-        var (acctName, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
+        var (acctName, container, blob) = StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
         _account = provider.GetAccount(acctName);
-        _store = new BlobStore(_account, container);
+        _containerName = container;
         _blobName = blob ?? throw new ArgumentException("URI must include a blob name.", nameof(blobUri));
     }
 
-    internal FileBlobClient(FileStorageAccount account, string containerName, string blobName) : base()
+    internal SqliteBlobClient(SqliteStorageAccount account, string containerName, string blobName) : base()
     {
         _account = account;
-        _store = new BlobStore(account, containerName);
+        _containerName = containerName;
         _blobName = blobName;
     }
 
-    /// <summary>Creates a new <see cref="FileBlobClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem-backed storage account.</param>
-    /// <param name="containerName">The name of the blob container.</param>
-    /// <param name="blobName">The name of the blob.</param>
-    public static FileBlobClient FromAccount(FileStorageAccount account, string containerName, string blobName)
+    public static SqliteBlobClient FromAccount(SqliteStorageAccount account, string containerName, string blobName)
         => new(account, containerName, blobName);
 
     /// <inheritdoc/>
     public override string Name => _blobName;
     /// <inheritdoc/>
-    public override string BlobContainerName => _store.ContainerName;
+    public override string BlobContainerName => _containerName;
     /// <inheritdoc/>
     public override string AccountName => _account.Name;
     /// <inheritdoc/>
-    public override Uri Uri => new($"{_account.BlobServiceUri}{_store.ContainerName}/{System.Uri.EscapeDataString(_blobName)}");
+    public override Uri Uri => new($"{_account.BlobServiceUri}{_containerName}/{System.Uri.EscapeDataString(_blobName)}");
 
     // ==== Async Upload (primary) ====
 
@@ -173,85 +162,168 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override Response<BlobDownloadStreamingResult> DownloadStreaming(BlobDownloadOptions options = default!, CancellationToken ct = default) => DownloadStreamingAsync(options, ct).GetAwaiter().GetResult();
 
-    // ==== Async Exists / Delete / GetProperties / SetMetadata / SetHttpHeaders (primary) ====
+    // ==== Exists / Delete / GetProperties / SetMetadata / SetHttpHeaders ====
 
     /// <inheritdoc/>
     public override async Task<Response<bool>> ExistsAsync(CancellationToken cancellationToken = default)
-        => Response.FromValue(_store.Exists(_blobName), StubResponse.Ok());
+    {
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var count = (long)cmd.ExecuteScalar()!;
+        return Response.FromValue(count > 0, StubResponse.Ok());
+    }
 
     /// <inheritdoc/>
     public override async Task<Response> DeleteAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(Delete));
-        _store.Delete(_blobName);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+
+        // Clean up related tables
+        using var cleanup = conn.CreateCommand();
+        cleanup.CommandText = "DELETE FROM StagedBlocks WHERE ContainerName = @container AND BlobName = @blob; DELETE FROM CommittedBlocks WHERE ContainerName = @container AND BlobName = @blob; DELETE FROM PageRanges WHERE ContainerName = @container AND BlobName = @blob; DELETE FROM Snapshots WHERE ContainerName = @container AND BlobName = @blob;";
+        cleanup.Parameters.AddWithValue("@container", _containerName);
+        cleanup.Parameters.AddWithValue("@blob", _blobName);
+        cleanup.ExecuteNonQuery();
+
         return StubResponse.Accepted();
     }
 
     /// <inheritdoc/>
     public override async Task<Response<bool>> DeleteIfExistsAsync(DeleteSnapshotsOption snapshotsOption = default, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        if (!_store.Exists(_blobName))
-            return Response.FromValue(false, StubResponse.Ok());
-        await DeleteAsync(snapshotsOption, conditions, cancellationToken).ConfigureAwait(false);
-        return Response.FromValue(true, StubResponse.Ok());
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows > 0)
+        {
+            using var cleanup = conn.CreateCommand();
+            cleanup.CommandText = "DELETE FROM StagedBlocks WHERE ContainerName = @container AND BlobName = @blob; DELETE FROM CommittedBlocks WHERE ContainerName = @container AND BlobName = @blob; DELETE FROM PageRanges WHERE ContainerName = @container AND BlobName = @blob; DELETE FROM Snapshots WHERE ContainerName = @container AND BlobName = @blob;";
+            cleanup.Parameters.AddWithValue("@container", _containerName);
+            cleanup.Parameters.AddWithValue("@blob", _blobName);
+            cleanup.ExecuteNonQuery();
+        }
+        return Response.FromValue(rows > 0, StubResponse.Ok());
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobProperties>> GetPropertiesAsync(BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(GetProperties));
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT BlobType, ContentType, ContentEncoding, ContentLanguage, ContentDisposition,
+            CacheControl, ContentHash, ETag, CreatedOn, LastModified, Length, AccessTier, Metadata, SequenceNumber
+            FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
 
-        var md5 = sidecar.ContentHashBase64 is not null ? Convert.FromBase64String(sidecar.ContentHashBase64) : null;
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+
+        var blobTypeStr = reader.IsDBNull(0) ? "Block" : reader.GetString(0);
+        var contentType = reader.IsDBNull(1) ? "application/octet-stream" : reader.GetString(1);
+        var contentEncoding = reader.IsDBNull(2) ? null : reader.GetString(2);
+        var contentLanguage = reader.IsDBNull(3) ? null : reader.GetString(3);
+        var contentDisposition = reader.IsDBNull(4) ? null : reader.GetString(4);
+        var cacheControl = reader.IsDBNull(5) ? null : reader.GetString(5);
+        var contentHashBase64 = reader.IsDBNull(6) ? null : reader.GetString(6);
+        var etag = reader.GetString(7);
+        var createdOn = DateTimeOffset.Parse(reader.GetString(8));
+        var lastModified = DateTimeOffset.Parse(reader.GetString(9));
+        var length = reader.GetInt64(10);
+        var accessTier = reader.IsDBNull(11) ? null : reader.GetString(11);
+        var metadataJson = reader.IsDBNull(12) ? null : reader.GetString(12);
+        var sequenceNumber = reader.IsDBNull(13) ? 0L : reader.GetInt64(13);
+
+        var md5 = contentHashBase64 is not null ? Convert.FromBase64String(contentHashBase64) : null;
+        IDictionary<string, string>? metadata = null;
+        if (metadataJson is not null)
+            metadata = JsonSerializer.Deserialize<Dictionary<string, string>>(metadataJson);
+
+        var blobType = blobTypeStr switch
+        {
+            "Append" => BlobType.Append,
+            "Page" => BlobType.Page,
+            _ => BlobType.Block
+        };
+
         var props = BlobsModelFactory.BlobProperties(
-            lastModified: sidecar.LastModifiedUtc, createdOn: sidecar.CreatedOnUtc,
-            metadata: sidecar.Metadata,
-            blobType: sidecar.BlobType switch { BlobKind.Append => BlobType.Append, BlobKind.Page => BlobType.Page, _ => BlobType.Block },
-            contentLength: sidecar.Length,
-            contentType: sidecar.ContentType ?? "application/octet-stream",
-            eTag: new ETag(sidecar.ETag), contentHash: md5,
-            contentEncoding: sidecar.ContentEncoding, contentDisposition: sidecar.ContentDisposition,
-            contentLanguage: sidecar.ContentLanguage, cacheControl: sidecar.CacheControl,
-            accessTier: sidecar.AccessTier);
+            lastModified: lastModified, createdOn: createdOn,
+            metadata: metadata,
+            blobType: blobType,
+            contentLength: length,
+            contentType: contentType,
+            eTag: new ETag(etag), contentHash: md5,
+            contentEncoding: contentEncoding, contentDisposition: contentDisposition,
+            contentLanguage: contentLanguage, cacheControl: cacheControl,
+            accessTier: accessTier, blobSequenceNumber: sequenceNumber);
         return Response.FromValue(props, StubResponse.Ok());
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobInfo>> SetMetadataAsync(IDictionary<string, string> metadata, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(SetMetadata));
+        var now = DateTimeOffset.UtcNow;
+        var etag = $"\"0x{Guid.NewGuid():N}\"";
 
-        sidecar.Metadata = new Dictionary<string, string>(metadata, StringComparer.Ordinal);
-        sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
-        var fi = new FileInfo(_store.BlobPath(_blobName));
-        sidecar.ETag = ETagCalculator.Compute(fi.Length, sidecar.LastModifiedUtc, ReadOnlySpan<byte>.Empty).ToString()!;
-        await _store.WriteSidecarAsync(_blobName, sidecar, cancellationToken).ConfigureAwait(false);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE Blobs SET Metadata = @metadata, LastModified = @lastModified, ETag = @etag WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@metadata", JsonSerializer.Serialize(metadata));
+        cmd.Parameters.AddWithValue("@lastModified", now.ToString("o"));
+        cmd.Parameters.AddWithValue("@etag", etag);
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
 
-        return Response.FromValue(BlobsModelFactory.BlobInfo(new ETag(sidecar.ETag), sidecar.LastModifiedUtc), StubResponse.Ok());
+        return Response.FromValue(BlobsModelFactory.BlobInfo(new ETag(etag), now), StubResponse.Ok());
     }
 
     /// <inheritdoc/>
     public override async Task<Response<BlobInfo>> SetHttpHeadersAsync(BlobHttpHeaders httpHeaders, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(SetHttpHeaders));
+        var now = DateTimeOffset.UtcNow;
+        var etag = $"\"0x{Guid.NewGuid():N}\"";
 
-        if (httpHeaders.ContentType is not null) sidecar.ContentType = httpHeaders.ContentType;
-        if (httpHeaders.ContentEncoding is not null) sidecar.ContentEncoding = httpHeaders.ContentEncoding;
-        if (httpHeaders.ContentLanguage is not null) sidecar.ContentLanguage = httpHeaders.ContentLanguage;
-        if (httpHeaders.ContentDisposition is not null) sidecar.ContentDisposition = httpHeaders.ContentDisposition;
-        if (httpHeaders.CacheControl is not null) sidecar.CacheControl = httpHeaders.CacheControl;
-        sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
-        var fi = new FileInfo(_store.BlobPath(_blobName));
-        sidecar.ETag = ETagCalculator.Compute(fi.Length, sidecar.LastModifiedUtc, ReadOnlySpan<byte>.Empty).ToString()!;
-        await _store.WriteSidecarAsync(_blobName, sidecar, cancellationToken).ConfigureAwait(false);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"UPDATE Blobs SET
+            ContentType = COALESCE(@contentType, ContentType),
+            ContentEncoding = COALESCE(@contentEncoding, ContentEncoding),
+            ContentLanguage = COALESCE(@contentLanguage, ContentLanguage),
+            ContentDisposition = COALESCE(@contentDisposition, ContentDisposition),
+            CacheControl = COALESCE(@cacheControl, CacheControl),
+            LastModified = @lastModified, ETag = @etag
+            WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@contentType", (object?)httpHeaders.ContentType ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentEncoding", (object?)httpHeaders.ContentEncoding ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentLanguage", (object?)httpHeaders.ContentLanguage ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentDisposition", (object?)httpHeaders.ContentDisposition ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@cacheControl", (object?)httpHeaders.CacheControl ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@lastModified", now.ToString("o"));
+        cmd.Parameters.AddWithValue("@etag", etag);
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
 
-        return Response.FromValue(BlobsModelFactory.BlobInfo(new ETag(sidecar.ETag), sidecar.LastModifiedUtc), StubResponse.Ok());
+        return Response.FromValue(BlobsModelFactory.BlobInfo(new ETag(etag), now), StubResponse.Ok());
     }
 
     // ==== Sync delegates ====
@@ -273,101 +345,142 @@ public class FileBlobClient : BlobClient
 
     internal async Task<Response<BlobContentInfo>> UploadCoreAsync(Stream content, BlobUploadOptions? options, CancellationToken ct = default)
     {
-        var conditions = options?.Conditions;
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: false, nameof(Upload));
-
-        // Save previous version if the blob already exists
-        if (sidecar != null && _store.Exists(_blobName))
-        {
-            var versionId = sidecar.LastModifiedUtc.ToString("yyyyMMddTHHmmssfffffffZ");
-            var blobPath = _store.BlobPath(_blobName);
-            var versionPath = blobPath + $".version.{versionId}";
-            try { File.Copy(blobPath, versionPath, overwrite: true); } catch { }
-            var sidecarPath = _store.SidecarPath(_blobName);
-            var versionSidecarPath = sidecarPath + $".version.{versionId}";
-            try { File.Copy(sidecarPath, versionSidecarPath, overwrite: true); } catch { }
-        }
-
-        var (length, md5) = await _store.WriteContentFromStreamAsync(_blobName, content, ct).ConfigureAwait(false);
+        using var ms = new MemoryStream();
+        await content.CopyToAsync(ms, ct).ConfigureAwait(false);
+        var data = ms.ToArray();
+        var md5 = MD5.HashData(data);
         var now = DateTimeOffset.UtcNow;
-        var etag = ETagCalculator.Compute(length, now, md5);
+        var etag = $"\"0x{Guid.NewGuid():N}\"";
+        var versionId = now.ToString("yyyyMMddTHHmmssfffffffZ");
 
-        var newSidecar = sidecar ?? new BlobSidecar();
-        newSidecar.BlobType = BlobKind.Block;
-        newSidecar.Length = length;
-        newSidecar.ContentHashBase64 = Convert.ToBase64String(md5);
-        newSidecar.ETag = etag.ToString()!;
-        newSidecar.LastModifiedUtc = now;
-        if (sidecar is null) newSidecar.CreatedOnUtc = now;
-        if (options?.HttpHeaders is { } headers)
+        var conditions = options?.Conditions;
+
+        using var conn = _account.Db.Open();
+
+        // Check IfNoneMatch = * (blob must not exist)
+        if (conditions?.IfNoneMatch == ETag.All)
         {
-            newSidecar.ContentType = headers.ContentType;
-            newSidecar.ContentEncoding = headers.ContentEncoding;
-            newSidecar.ContentLanguage = headers.ContentLanguage;
-            newSidecar.ContentDisposition = headers.ContentDisposition;
-            newSidecar.CacheControl = headers.CacheControl;
+            using var checkCmd = conn.CreateCommand();
+            checkCmd.CommandText = "SELECT COUNT(*) FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+            checkCmd.Parameters.AddWithValue("@container", _containerName);
+            checkCmd.Parameters.AddWithValue("@blob", _blobName);
+            if ((long)checkCmd.ExecuteScalar()! > 0)
+                throw new RequestFailedException(409, "Blob already exists.", "BlobAlreadyExists", null);
         }
-        if (options?.Metadata is { } meta)
-            newSidecar.Metadata = new Dictionary<string, string>(meta, StringComparer.Ordinal);
-        newSidecar.VersionId = now.ToString("yyyyMMddTHHmmssfffffffZ");
-        newSidecar.CommittedBlocks.Clear();
-        await _store.WriteSidecarAsync(_blobName, newSidecar, ct).ConfigureAwait(false);
 
-        return Response.FromValue(BlobsModelFactory.BlobContentInfo(etag, now, md5, null!, null!, null!, 0), StubResponse.Created());
+        // Save previous version if blob exists
+        using (var verCmd = conn.CreateCommand())
+        {
+            verCmd.CommandText = @"INSERT OR IGNORE INTO Versions (ContainerName, BlobName, VersionId, Content, Sidecar)
+                SELECT ContainerName, BlobName, VersionId, Content,
+                    json_object('BlobType', BlobType, 'ContentType', ContentType, 'ETag', ETag, 'Length', Length)
+                FROM Blobs WHERE ContainerName = @container AND BlobName = @blob AND VersionId IS NOT NULL";
+            verCmd.Parameters.AddWithValue("@container", _containerName);
+            verCmd.Parameters.AddWithValue("@blob", _blobName);
+            verCmd.ExecuteNonQuery();
+        }
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT OR REPLACE INTO Blobs
+            (ContainerName, BlobName, BlobType, Content, ContentType, ContentEncoding, ContentLanguage,
+             ContentDisposition, CacheControl, ContentHash, ETag, CreatedOn, LastModified, Length,
+             AccessTier, Metadata, Tags, VersionId)
+            VALUES (@container, @blob, 'Block', @content, @contentType, @contentEncoding, @contentLanguage,
+                    @contentDisposition, @cacheControl, @contentHash, @etag,
+                    COALESCE((SELECT CreatedOn FROM Blobs WHERE ContainerName = @container AND BlobName = @blob), @createdOn),
+                    @lastModified, @length, @accessTier, @metadata,
+                    (SELECT Tags FROM Blobs WHERE ContainerName = @container AND BlobName = @blob),
+                    @versionId)";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        cmd.Parameters.AddWithValue("@content", data);
+        cmd.Parameters.AddWithValue("@contentType", (object?)options?.HttpHeaders?.ContentType ?? "application/octet-stream");
+        cmd.Parameters.AddWithValue("@contentEncoding", (object?)options?.HttpHeaders?.ContentEncoding ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentLanguage", (object?)options?.HttpHeaders?.ContentLanguage ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentDisposition", (object?)options?.HttpHeaders?.ContentDisposition ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@cacheControl", (object?)options?.HttpHeaders?.CacheControl ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@contentHash", Convert.ToBase64String(md5));
+        cmd.Parameters.AddWithValue("@etag", etag);
+        cmd.Parameters.AddWithValue("@createdOn", now.ToString("o"));
+        cmd.Parameters.AddWithValue("@lastModified", now.ToString("o"));
+        cmd.Parameters.AddWithValue("@length", (long)data.Length);
+        cmd.Parameters.AddWithValue("@accessTier", DBNull.Value);
+        cmd.Parameters.AddWithValue("@metadata", options?.Metadata is not null ? JsonSerializer.Serialize(options.Metadata) : (object)DBNull.Value);
+        cmd.Parameters.AddWithValue("@versionId", versionId);
+        cmd.ExecuteNonQuery();
+
+        return Response.FromValue(BlobsModelFactory.BlobContentInfo(new ETag(etag), now, md5, null!, null!, null!, 0), StubResponse.Created());
     }
 
     private async Task<Response<BlobDownloadResult>> DownloadContentCoreAsync(BlobRequestConditions? conditions, CancellationToken ct)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(DownloadContent));
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"SELECT Content, BlobType, ContentType, ContentEncoding, ContentLanguage, ContentDisposition,
+            CacheControl, ContentHash, ETag, CreatedOn, LastModified, Length, Metadata
+            FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
 
-        var bytes = await File.ReadAllBytesAsync(_store.BlobPath(_blobName), ct).ConfigureAwait(false);
-        var md5 = sidecar.ContentHashBase64 is not null ? Convert.FromBase64String(sidecar.ContentHashBase64) : null;
-        var details = BuildDownloadDetails(sidecar, md5);
-        return Response.FromValue(BlobsModelFactory.BlobDownloadResult(new BinaryData(bytes), details), StubResponse.Ok());
+        using var reader = cmd.ExecuteReader();
+        if (!reader.Read())
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+
+        var content = reader.IsDBNull(0) ? Array.Empty<byte>() : (byte[])reader[0];
+        var blobTypeStr = reader.IsDBNull(1) ? "Block" : reader.GetString(1);
+        var contentType = reader.IsDBNull(2) ? "application/octet-stream" : reader.GetString(2);
+        var contentEncoding = reader.IsDBNull(3) ? null : reader.GetString(3);
+        var contentLanguage = reader.IsDBNull(4) ? null : reader.GetString(4);
+        var contentDisposition = reader.IsDBNull(5) ? null : reader.GetString(5);
+        var cacheControl = reader.IsDBNull(6) ? null : reader.GetString(6);
+        var contentHashBase64 = reader.IsDBNull(7) ? null : reader.GetString(7);
+        var etag = reader.GetString(8);
+        var createdOn = DateTimeOffset.Parse(reader.GetString(9));
+        var lastModified = DateTimeOffset.Parse(reader.GetString(10));
+        var length = reader.GetInt64(11);
+        var metadataJson = reader.IsDBNull(12) ? null : reader.GetString(12);
+
+        var md5 = contentHashBase64 is not null ? Convert.FromBase64String(contentHashBase64) : null;
+        IDictionary<string, string>? metadata = null;
+        if (metadataJson is not null)
+            metadata = JsonSerializer.Deserialize<Dictionary<string, string>>(metadataJson);
+
+        var blobType = blobTypeStr switch { "Append" => BlobType.Append, "Page" => BlobType.Page, _ => BlobType.Block };
+
+        var details = BlobsModelFactory.BlobDownloadDetails(
+            blobType: blobType, contentLength: length, contentType: contentType,
+            contentHash: md5, lastModified: lastModified, metadata: metadata,
+            contentEncoding: contentEncoding, contentDisposition: contentDisposition,
+            contentLanguage: contentLanguage, cacheControl: cacheControl,
+            createdOn: createdOn, eTag: new ETag(etag));
+
+        return Response.FromValue(BlobsModelFactory.BlobDownloadResult(new BinaryData(content), details), StubResponse.Ok());
     }
 
     private async Task<Response<BlobDownloadStreamingResult>> DownloadStreamingCoreAsync(BlobRequestConditions? conditions, CancellationToken ct)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(DownloadStreaming));
-
-        var md5 = sidecar.ContentHashBase64 is not null ? Convert.FromBase64String(sidecar.ContentHashBase64) : null;
-        var stream = new FileStream(_store.BlobPath(_blobName), FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
-        var details = BuildDownloadDetails(sidecar, md5);
+        var result = await DownloadContentCoreAsync(conditions, ct).ConfigureAwait(false);
+        var stream = result.Value.Content.ToStream();
+        var details = result.Value.Details;
         return Response.FromValue(BlobsModelFactory.BlobDownloadStreamingResult(stream, details), StubResponse.Ok());
     }
 
-    private static BlobDownloadDetails BuildDownloadDetails(BlobSidecar sidecar, byte[]? md5) =>
-        BlobsModelFactory.BlobDownloadDetails(
-            blobType: sidecar.BlobType switch { BlobKind.Append => BlobType.Append, BlobKind.Page => BlobType.Page, _ => BlobType.Block },
-            contentLength: sidecar.Length,
-            contentType: sidecar.ContentType ?? "application/octet-stream",
-            contentHash: md5, lastModified: sidecar.LastModifiedUtc, metadata: sidecar.Metadata,
-            contentEncoding: sidecar.ContentEncoding, contentDisposition: sidecar.ContentDisposition,
-            contentLanguage: sidecar.ContentLanguage, cacheControl: sidecar.CacheControl,
-            createdOn: sidecar.CreatedOnUtc, eTag: new ETag(sidecar.ETag));
-
-    // ==== Item 2: GenerateSasUri — returns a synthetic URI ====
+    // ==== GenerateSasUri ====
 
     /// <inheritdoc/>
     public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasBuilder builder) => Uri;
     /// <inheritdoc/>
     public override Uri GenerateSasUri(global::Azure.Storage.Sas.BlobSasPermissions permissions, DateTimeOffset expiresOn) => Uri;
 
-    // ==== Item 3: OpenRead / OpenWrite ====
+    // ==== OpenRead / OpenWrite ====
 
     /// <inheritdoc/>
     public override async Task<Stream> OpenReadAsync(long position = 0, int? bufferSize = null, BlobRequestConditions conditions = null!, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        var fs = new FileStream(_store.BlobPath(_blobName), FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize ?? 4096, useAsync: true);
-        if (position > 0) fs.Seek(position, SeekOrigin.Begin);
-        return fs;
+        var result = await DownloadContentCoreAsync(conditions, cancellationToken).ConfigureAwait(false);
+        var stream = result.Value.Content.ToStream();
+        if (position > 0) stream.Seek(position, SeekOrigin.Begin);
+        return stream;
     }
 
     /// <inheritdoc/>
@@ -382,29 +495,6 @@ public class FileBlobClient : BlobClient
     public override Stream OpenRead(BlobOpenReadOptions options, CancellationToken cancellationToken = default)
         => OpenReadAsync(options, cancellationToken).GetAwaiter().GetResult();
 
-    // ==== OpenWrite ====
-
-    /// <inheritdoc/>
-    public override async Task<Stream> OpenWriteAsync(bool overwrite, BlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        if (!overwrite)
-        {
-            var existing = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false);
-            if (existing is not null)
-                throw new RequestFailedException(409, "Blob already exists and overwrite is false.", "BlobAlreadyExists", null);
-        }
-        var blobPath = _store.BlobPath(_blobName);
-        var dir = Path.GetDirectoryName(blobPath);
-        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        var tmpPath = blobPath + ".openwrite.tmp";
-        var inner = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-        return new CommitOnCloseStream(inner, tmpPath, _blobName, _store, options?.HttpHeaders, options?.Metadata);
-    }
-
-    /// <inheritdoc/>
-    public override Stream OpenWrite(bool overwrite, BlobOpenWriteOptions? options = null, CancellationToken cancellationToken = default)
-        => OpenWriteAsync(overwrite, options, cancellationToken).GetAwaiter().GetResult();
-
     // ==== DownloadStreaming additional overloads ====
 
     /// <inheritdoc/>
@@ -415,15 +505,32 @@ public class FileBlobClient : BlobClient
     public override Response<BlobDownloadStreamingResult> DownloadStreaming(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, CancellationToken cancellationToken = default)
         => DownloadStreamingAsync(range, conditions, rangeGetContentHash, cancellationToken).GetAwaiter().GetResult();
 
-    // ==== Item 4: DownloadTo ====
+    /// <inheritdoc/>
+    public override async Task<Response<BlobDownloadStreamingResult>> DownloadStreamingAsync(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, IProgress<long>? progressHandler = null, CancellationToken cancellationToken = default)
+        => await DownloadStreamingCoreAsync(conditions, cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc/>
+    public override Response<BlobDownloadStreamingResult> DownloadStreaming(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, IProgress<long>? progressHandler = null, CancellationToken cancellationToken = default)
+        => DownloadStreamingAsync(range, conditions, rangeGetContentHash, progressHandler, cancellationToken).GetAwaiter().GetResult();
+
+    // ==== DownloadContent additional overloads ====
+
+    /// <inheritdoc/>
+    public override async Task<Response<BlobDownloadResult>> DownloadContentAsync(BlobRequestConditions conditions, IProgress<long>? progressHandler, HttpRange range, CancellationToken cancellationToken = default)
+        => await DownloadContentCoreAsync(conditions, cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc/>
+    public override Response<BlobDownloadResult> DownloadContent(BlobRequestConditions conditions, IProgress<long>? progressHandler, HttpRange range, CancellationToken cancellationToken = default)
+        => DownloadContentAsync(conditions, progressHandler, range, cancellationToken).GetAwaiter().GetResult();
+
+    // ==== DownloadTo ====
 
     /// <inheritdoc/>
     public override async Task<Response> DownloadToAsync(Stream destination, CancellationToken cancellationToken = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, cancellationToken).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        await using var fs = new FileStream(_store.BlobPath(_blobName), FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-        await fs.CopyToAsync(destination, cancellationToken).ConfigureAwait(false);
+        var result = await DownloadContentCoreAsync(null, cancellationToken).ConfigureAwait(false);
+        var bytes = result.Value.Content.ToArray();
+        await destination.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         return StubResponse.Ok();
     }
 
@@ -439,27 +546,7 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override Response DownloadTo(string path, CancellationToken ct = default) => DownloadToAsync(path, ct).GetAwaiter().GetResult();
 
-    // ==== Item 4: Download(HttpRange, ...) overloads ====
-
-    /// <inheritdoc/>
-    public override async Task<Response<BlobDownloadStreamingResult>> DownloadStreamingAsync(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, IProgress<long>? progressHandler = null, CancellationToken cancellationToken = default)
-        => await DownloadStreamingCoreAsync(conditions, cancellationToken).ConfigureAwait(false);
-
-    /// <inheritdoc/>
-    public override Response<BlobDownloadStreamingResult> DownloadStreaming(HttpRange range, BlobRequestConditions conditions = null!, bool rangeGetContentHash = false, IProgress<long>? progressHandler = null, CancellationToken cancellationToken = default)
-        => DownloadStreamingAsync(range, conditions, rangeGetContentHash, progressHandler, cancellationToken).GetAwaiter().GetResult();
-
-    // ==== Item 5: DownloadContent(BlobRequestConditions, IProgress, HttpRange, ...) overloads ====
-
-    /// <inheritdoc/>
-    public override async Task<Response<BlobDownloadResult>> DownloadContentAsync(BlobRequestConditions conditions, IProgress<long>? progressHandler, HttpRange range, CancellationToken cancellationToken = default)
-        => await DownloadContentCoreAsync(conditions, cancellationToken).ConfigureAwait(false);
-
-    /// <inheritdoc/>
-    public override Response<BlobDownloadResult> DownloadContent(BlobRequestConditions conditions, IProgress<long>? progressHandler, HttpRange range, CancellationToken cancellationToken = default)
-        => DownloadContentAsync(conditions, progressHandler, range, cancellationToken).GetAwaiter().GetResult();
-
-    // ==== Download (deprecated BlobDownloadInfo API — delegates to DownloadStreaming) ====
+    // ==== Download (deprecated BlobDownloadInfo) ====
 
     private async Task<Response<BlobDownloadInfo>> DownloadCoreAsync(BlobRequestConditions? conditions, CancellationToken ct)
     {
@@ -511,13 +598,16 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response> SetAccessTierAsync(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(SetAccessTier));
-
-        sidecar.AccessTier = tier.ToString();
-        sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
-        await _store.WriteSidecarAsync(_blobName, sidecar, ct).ConfigureAwait(false);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE Blobs SET AccessTier = @tier, LastModified = @lastModified WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@tier", tier.ToString());
+        cmd.Parameters.AddWithValue("@lastModified", DateTimeOffset.UtcNow.ToString("o"));
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
         return StubResponse.Ok();
     }
 
@@ -525,24 +615,37 @@ public class FileBlobClient : BlobClient
     public override Response SetAccessTier(AccessTier tier, BlobRequestConditions conditions = null!, RehydratePriority? priority = null, CancellationToken ct = default)
         => SetAccessTierAsync(tier, conditions, priority, ct).GetAwaiter().GetResult();
 
-    // ==== CreateSnapshot — copies blob + sidecar to a .snapshot file ====
+    // ==== CreateSnapshot ====
 
     /// <inheritdoc/>
     public override async Task<Response<BlobSnapshotInfo>> CreateSnapshotAsync(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        _store.CheckConditions(sidecar, conditions?.IfMatch, conditions?.IfNoneMatch, mustExist: true, nameof(CreateSnapshot));
-
         var snapshotId = DateTimeOffset.UtcNow.ToString("yyyyMMddTHHmmssfffZ");
-        var blobPath = _store.BlobPath(_blobName);
-        var snapPath = blobPath + $".snapshot.{snapshotId}";
-        await using (var src = new FileStream(blobPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true))
-        await using (var dst = new FileStream(snapPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
-        {
-            await src.CopyToAsync(dst, ct).ConfigureAwait(false);
-        }
-        var info = BlobsModelFactory.BlobSnapshotInfo(snapshot: snapshotId, eTag: new ETag(sidecar.ETag), lastModified: sidecar.LastModifiedUtc, isServerEncrypted: false);
+
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO Snapshots (ContainerName, BlobName, SnapshotId, Content, Sidecar)
+            SELECT ContainerName, BlobName, @snapshotId, Content,
+                json_object('BlobType', BlobType, 'ContentType', ContentType, 'ETag', ETag, 'Length', Length, 'Metadata', Metadata)
+            FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@snapshotId", snapshotId);
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+
+        // Get current ETag/LastModified
+        using var propCmd = conn.CreateCommand();
+        propCmd.CommandText = "SELECT ETag, LastModified FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        propCmd.Parameters.AddWithValue("@container", _containerName);
+        propCmd.Parameters.AddWithValue("@blob", _blobName);
+        using var reader = propCmd.ExecuteReader();
+        reader.Read();
+        var etag = reader.GetString(0);
+        var lastModified = DateTimeOffset.Parse(reader.GetString(1));
+
+        var info = BlobsModelFactory.BlobSnapshotInfo(snapshot: snapshotId, eTag: new ETag(etag), lastModified: lastModified, isServerEncrypted: false);
         return Response.FromValue(info, StubResponse.Created());
     }
 
@@ -550,22 +653,19 @@ public class FileBlobClient : BlobClient
     public override Response<BlobSnapshotInfo> CreateSnapshot(IDictionary<string, string>? metadata = null, BlobRequestConditions conditions = null!, CancellationToken ct = default)
         => CreateSnapshotAsync(metadata, conditions, ct).GetAwaiter().GetResult();
 
-    // ==== StartCopyFromUri — resolves local blobs or downloads via HttpClient ====
+    // ==== StartCopyFromUri ====
 
     /// <inheritdoc/>
     public override async Task<CopyFromUriOperation> StartCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
     {
-        // Try to resolve as a local blob within this provider.
         Stream sourceStream;
-        var acctName = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
+        var acctName = StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
         if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
         {
-            var (_, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
-            var srcStore = new BlobStore(srcAccount, container);
-            var srcPath = srcStore.BlobPath(blob!);
-            if (!File.Exists(srcPath))
-                throw new RequestFailedException(404, "Source blob not found.", "BlobNotFound", null);
-            sourceStream = new FileStream(srcPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
+            var (_, container, blob) = StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
+            var srcClient = new SqliteBlobClient(srcAccount, container, blob!);
+            var downloadResult = await srcClient.DownloadContentAsync(ct).ConfigureAwait(false);
+            sourceStream = downloadResult.Value.Content.ToStream();
         }
         else
         {
@@ -578,7 +678,6 @@ public class FileBlobClient : BlobClient
         {
             await UploadCoreAsync(sourceStream, new BlobUploadOptions
             {
-                HttpHeaders = options?.SourceConditions is null ? null : null,
                 Metadata = options?.Metadata,
             }, ct).ConfigureAwait(false);
         }
@@ -591,7 +690,7 @@ public class FileBlobClient : BlobClient
     public override CopyFromUriOperation StartCopyFromUri(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
         => StartCopyFromUriAsync(source, options, ct).GetAwaiter().GetResult();
 
-    // ==== AbortCopyFromUri — no-op ====
+    // ==== AbortCopyFromUri ====
 
     /// <inheritdoc/>
     public override async Task<Response> AbortCopyFromUriAsync(string copyId, BlobRequestConditions conditions = null!, CancellationToken ct = default)
@@ -600,7 +699,7 @@ public class FileBlobClient : BlobClient
     public override Response AbortCopyFromUri(string copyId, BlobRequestConditions conditions = null!, CancellationToken ct = default)
         => AbortCopyFromUriAsync(copyId, conditions, ct).GetAwaiter().GetResult();
 
-    // ==== Undelete — no-op ====
+    // ==== Undelete ====
 
     /// <inheritdoc/>
     public override async Task<Response> UndeleteAsync(CancellationToken ct = default)
@@ -614,9 +713,24 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<GetBlobTagResult>> GetTagsAsync(BlobRequestConditions conditions = null!, CancellationToken ct = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        var result = BlobsModelFactory.GetBlobTagResult(sidecar.Tags ?? new Dictionary<string, string>());
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Tags FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var tagsJson = cmd.ExecuteScalar() as string;
+        if (tagsJson is null)
+        {
+            // Check if blob exists
+            using var checkCmd = conn.CreateCommand();
+            checkCmd.CommandText = "SELECT COUNT(*) FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+            checkCmd.Parameters.AddWithValue("@container", _containerName);
+            checkCmd.Parameters.AddWithValue("@blob", _blobName);
+            if ((long)checkCmd.ExecuteScalar()! == 0)
+                throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
+        }
+        var tags = tagsJson is not null ? JsonSerializer.Deserialize<Dictionary<string, string>>(tagsJson) ?? new Dictionary<string, string>() : new Dictionary<string, string>();
+        var result = BlobsModelFactory.GetBlobTagResult(tags);
         return Response.FromValue(result, StubResponse.Ok());
     }
 
@@ -627,11 +741,16 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response> SetTagsAsync(IDictionary<string, string> tags, BlobRequestConditions conditions = null!, CancellationToken ct = default)
     {
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false)
-            ?? throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
-        sidecar.Tags = new Dictionary<string, string>(tags, StringComparer.Ordinal);
-        sidecar.LastModifiedUtc = DateTimeOffset.UtcNow;
-        await _store.WriteSidecarAsync(_blobName, sidecar, ct).ConfigureAwait(false);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE Blobs SET Tags = @tags, LastModified = @lastModified WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@tags", JsonSerializer.Serialize(tags));
+        cmd.Parameters.AddWithValue("@lastModified", DateTimeOffset.UtcNow.ToString("o"));
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        var rows = cmd.ExecuteNonQuery();
+        if (rows == 0)
+            throw new RequestFailedException(404, "Blob not found.", "BlobNotFound", null);
         return StubResponse.NoContent();
     }
 
@@ -644,7 +763,6 @@ public class FileBlobClient : BlobClient
     /// <inheritdoc/>
     public override async Task<Response<BlobCopyInfo>> SyncCopyFromUriAsync(Uri source, BlobCopyFromUriOptions options = null!, CancellationToken ct = default)
     {
-        // Reuse StartCopyFromUri which does an immediate copy
         await StartCopyFromUriAsync(source, options != null ? new BlobCopyFromUriOptions
         {
             Metadata = options.Metadata,
@@ -652,10 +770,23 @@ public class FileBlobClient : BlobClient
             DestinationConditions = options.DestinationConditions,
         } : null!, ct).ConfigureAwait(false);
 
-        var sidecar = await _store.ReadSidecarAsync(_blobName, ct).ConfigureAwait(false);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT ETag, LastModified FROM Blobs WHERE ContainerName = @container AND BlobName = @blob";
+        cmd.Parameters.AddWithValue("@container", _containerName);
+        cmd.Parameters.AddWithValue("@blob", _blobName);
+        using var reader = cmd.ExecuteReader();
+        var etag = "\"0x0\"";
+        var lastModified = DateTimeOffset.UtcNow;
+        if (reader.Read())
+        {
+            etag = reader.GetString(0);
+            lastModified = DateTimeOffset.Parse(reader.GetString(1));
+        }
+
         var info = BlobsModelFactory.BlobCopyInfo(
-            eTag: new ETag(sidecar?.ETag ?? "\"0x0\""),
-            lastModified: sidecar?.LastModifiedUtc ?? DateTimeOffset.UtcNow,
+            eTag: new ETag(etag),
+            lastModified: lastModified,
             copyId: Guid.NewGuid().ToString(),
             copyStatus: CopyStatus.Success);
         return Response.FromValue(info, StubResponse.Accepted());
@@ -669,5 +800,5 @@ public class FileBlobClient : BlobClient
 
     /// <inheritdoc/>
     protected override BlobLeaseClient GetBlobLeaseClientCore(string leaseId)
-        => new FileBlobLeaseClient(this, leaseId);
+        => new SqliteBlobLeaseClient(this, leaseId);
 }

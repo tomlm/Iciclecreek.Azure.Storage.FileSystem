@@ -1,41 +1,34 @@
+using System.Text.Json;
 using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
-using Iciclecreek.Azure.Storage.FileSystem.Internal;
+using Iciclecreek.Azure.Storage.SQLite.Internal;
 
-namespace Iciclecreek.Azure.Storage.FileSystem.Blobs;
+namespace Iciclecreek.Azure.Storage.SQLite.Blobs;
 
-/// <summary>Filesystem-backed drop-in replacement for <see cref="Azure.Storage.Blobs.BlobServiceClient"/>. Manages blob containers as subdirectories.</summary>
-public class FileBlobServiceClient : BlobServiceClient
+/// <summary>SQLite-backed drop-in replacement for <see cref="BlobServiceClient"/>.</summary>
+public class SqliteBlobServiceClient : BlobServiceClient
 {
-    internal readonly FileStorageAccount _account;
+    internal readonly SqliteStorageAccount _account;
 
-    /// <summary>Initializes a new <see cref="FileBlobServiceClient"/> from a connection string and provider.</summary>
-    /// <param name="connectionString">The storage connection string.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobServiceClient(string connectionString, FileStorageProvider provider) : base()
+    public SqliteBlobServiceClient(string connectionString, SqliteStorageProvider provider) : base()
     {
         _account = ConnectionStringParser.ResolveAccount(connectionString, provider);
     }
 
-    /// <summary>Initializes a new <see cref="FileBlobServiceClient"/> by extracting the account name from a service URI.</summary>
-    /// <param name="serviceUri">The blob service URI.</param>
-    /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
-    public FileBlobServiceClient(Uri serviceUri, FileStorageProvider provider) : base()
+    public SqliteBlobServiceClient(Uri serviceUri, SqliteStorageProvider provider) : base()
     {
-        var name = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
+        var name = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
             ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(serviceUri));
         _account = provider.GetAccount(name);
     }
 
-    internal FileBlobServiceClient(FileStorageAccount account) : base()
+    internal SqliteBlobServiceClient(SqliteStorageAccount account) : base()
     {
         _account = account;
     }
 
-    /// <summary>Creates a new <see cref="FileBlobServiceClient"/> from an existing <see cref="FileStorageAccount"/>.</summary>
-    /// <param name="account">The filesystem-backed storage account.</param>
-    public static FileBlobServiceClient FromAccount(FileStorageAccount account) => new(account);
+    public static SqliteBlobServiceClient FromAccount(SqliteStorageAccount account) => new(account);
 
     /// <inheritdoc/>
     public override string AccountName => _account.Name;
@@ -46,14 +39,14 @@ public class FileBlobServiceClient : BlobServiceClient
 
     /// <inheritdoc/>
     public override BlobContainerClient GetBlobContainerClient(string blobContainerName)
-        => new FileBlobContainerClient(_account, blobContainerName);
+        => new SqliteBlobContainerClient(_account, blobContainerName);
 
     // ---- CreateBlobContainer ----
 
     /// <inheritdoc/>
     public override Response<BlobContainerClient> CreateBlobContainer(string blobContainerName, PublicAccessType publicAccessType = default, IDictionary<string, string>? metadata = default, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobContainerClient(_account, blobContainerName);
+        var client = new SqliteBlobContainerClient(_account, blobContainerName);
         client.Create(publicAccessType, metadata, cancellationToken);
         return Response.FromValue<BlobContainerClient>(client, StubResponse.Created());
     }
@@ -67,7 +60,7 @@ public class FileBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override Response DeleteBlobContainer(string blobContainerName, BlobRequestConditions conditions = default!, CancellationToken cancellationToken = default)
     {
-        var client = new FileBlobContainerClient(_account, blobContainerName);
+        var client = new SqliteBlobContainerClient(_account, blobContainerName);
         return client.Delete(conditions, cancellationToken);
     }
 
@@ -81,15 +74,25 @@ public class FileBlobServiceClient : BlobServiceClient
     public override Pageable<BlobContainerItem> GetBlobContainers(BlobContainerTraits traits = default, BlobContainerStates states = default, string? prefix = default, CancellationToken cancellationToken = default)
     {
         var items = new List<BlobContainerItem>();
-        if (!Directory.Exists(_account.BlobsRootPath))
-            return new StaticPageable<BlobContainerItem>(items);
+        using var conn = _account.Db.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = prefix is not null
+            ? "SELECT Name, Metadata, CreatedOn FROM Containers WHERE Name LIKE @prefix || '%'"
+            : "SELECT Name, Metadata, CreatedOn FROM Containers";
+        if (prefix is not null)
+            cmd.Parameters.AddWithValue("@prefix", prefix);
 
-        foreach (var dir in Directory.EnumerateDirectories(_account.BlobsRootPath))
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
         {
-            var name = Path.GetFileName(dir);
-            if (name.StartsWith('.') || name.StartsWith('_')) continue;
-            if (prefix is not null && !name.StartsWith(prefix, StringComparison.Ordinal)) continue;
-            items.Add(BlobsModelFactory.BlobContainerItem(name, BlobsModelFactory.BlobContainerProperties(lastModified: Directory.GetLastWriteTimeUtc(dir), eTag: new ETag("\"0x0\""))));
+            var name = reader.GetString(0);
+            var metadataJson = reader.IsDBNull(1) ? null : reader.GetString(1);
+            var createdOn = reader.IsDBNull(2) ? DateTimeOffset.UtcNow : DateTimeOffset.Parse(reader.GetString(2));
+            IDictionary<string, string>? metadata = null;
+            if (metadataJson is not null)
+                metadata = JsonSerializer.Deserialize<Dictionary<string, string>>(metadataJson);
+
+            items.Add(BlobsModelFactory.BlobContainerItem(name, BlobsModelFactory.BlobContainerProperties(lastModified: createdOn, eTag: new ETag("\"0x0\""), metadata: metadata)));
         }
         return new StaticPageable<BlobContainerItem>(items);
     }
@@ -139,7 +142,6 @@ public class FileBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override Response<UserDelegationKey> GetUserDelegationKey(DateTimeOffset? startsOn, DateTimeOffset expiresOn, CancellationToken ct = default)
     {
-        // Use the (objectId, tenantId, startsOn, expiresOn, service, version, value) overload
         var objectId = Guid.NewGuid().ToString();
         var tenantId = Guid.NewGuid().ToString();
         var starts = startsOn ?? DateTimeOffset.UtcNow;
@@ -171,32 +173,31 @@ public class FileBlobServiceClient : BlobServiceClient
         if (conditions.Count == 0)
             return new StaticPageable<TaggedBlobItem>(results);
 
-        var blobsRoot = _account.BlobsRootPath;
-        if (!Directory.Exists(blobsRoot))
-            return new StaticPageable<TaggedBlobItem>(results);
+        using var conn = _account.Db.Open();
 
-        foreach (var containerDir in Directory.EnumerateDirectories(blobsRoot))
+        // Build SQL query using json_extract for each tag condition
+        var whereClauses = new List<string>();
+        var parameters = new List<(string name, string value)>();
+        for (int i = 0; i < conditions.Count; i++)
         {
-            var containerName = Path.GetFileName(containerDir);
-            if (containerName.StartsWith('.') || containerName.StartsWith('_')) continue;
+            whereClauses.Add($"json_extract(Tags, '$.\"' || @tagKey{i} || '\"') = @tagVal{i}");
+            parameters.Add(($"@tagKey{i}", conditions[i].Key));
+            parameters.Add(($"@tagVal{i}", conditions[i].Value));
+        }
 
-            var store = new Internal.BlobStore(_account, containerName);
-            foreach (var (blobName, _, _) in store.EnumerateBlobs(null))
-            {
-                ct.ThrowIfCancellationRequested();
-                var sidecar = store.ReadSidecarAsync(blobName, ct).GetAwaiter().GetResult();
-                if (sidecar?.Tags == null || sidecar.Tags.Count == 0) continue;
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"SELECT ContainerName, BlobName, Tags FROM Blobs WHERE Tags IS NOT NULL AND {string.Join(" AND ", whereClauses)}";
+        foreach (var (name, value) in parameters)
+            cmd.Parameters.AddWithValue(name, value);
 
-                bool match = conditions.All(c =>
-                    sidecar.Tags.TryGetValue(c.Key, out var val) &&
-                    string.Equals(val, c.Value, StringComparison.Ordinal));
-
-                if (match)
-                {
-                    var item = BlobsModelFactory.TaggedBlobItem(blobName, containerName, sidecar.Tags);
-                    results.Add(item);
-                }
-            }
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var containerName = reader.GetString(0);
+            var blobName = reader.GetString(1);
+            var tagsJson = reader.GetString(2);
+            var tags = JsonSerializer.Deserialize<Dictionary<string, string>>(tagsJson) ?? new Dictionary<string, string>();
+            results.Add(BlobsModelFactory.TaggedBlobItem(blobName, containerName, tags));
         }
 
         return new StaticPageable<TaggedBlobItem>(results);
@@ -206,17 +207,14 @@ public class FileBlobServiceClient : BlobServiceClient
     public override AsyncPageable<TaggedBlobItem> FindBlobsByTagsAsync(string tagFilterSqlExpression, CancellationToken ct = default)
         => new StaticAsyncPageable<TaggedBlobItem>(FindBlobsByTags(tagFilterSqlExpression, ct));
 
-    /// <summary>Parses simple tag filter expressions like <c>"key = 'value' AND key2 = 'value2'"</c>.</summary>
     private static List<KeyValuePair<string, string>> ParseSimpleTagFilter(string filter)
     {
         var result = new List<KeyValuePair<string, string>>();
         if (string.IsNullOrWhiteSpace(filter)) return result;
 
-        // Split on AND (case-insensitive)
         var parts = filter.Split(new[] { " AND ", " and " }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var part in parts)
         {
-            // Parse: key = 'value'
             var eqIdx = part.IndexOf('=');
             if (eqIdx < 0) continue;
             var key = part[..eqIdx].Trim().Trim('"');
@@ -243,5 +241,4 @@ public class FileBlobServiceClient : BlobServiceClient
     /// <inheritdoc/>
     public override async Task<Response<BlobContainerClient>> UndeleteBlobContainerAsync(string deletedContainerName, string deletedContainerVersion, string destinationContainerName, CancellationToken ct = default)
     { await Task.Yield(); return UndeleteBlobContainer(deletedContainerName, deletedContainerVersion, destinationContainerName, ct); }
-
 }

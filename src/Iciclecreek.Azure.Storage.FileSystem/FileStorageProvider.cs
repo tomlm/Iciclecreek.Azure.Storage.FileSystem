@@ -71,6 +71,7 @@ public sealed class FileStorageProvider
         var account = _accounts.GetOrAdd(accountName, n => new FileStorageAccount(this, n));
         Directory.CreateDirectory(account.BlobsRootPath);
         Directory.CreateDirectory(account.TablesRootPath);
+        Directory.CreateDirectory(account.QueuesRootPath);
         return account;
     }
 
