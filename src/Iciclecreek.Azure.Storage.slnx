@@ -5,6 +5,12 @@
     <Project Path="Libraries/Iciclecreek.Azure.Storage.Server/Iciclecreek.Azure.Storage.Server.csproj" />
     <Project Path="Libraries/Iciclecreek.Azure.Storage.SQLite/Iciclecreek.Azure.Storage.SQLite.csproj" />
   </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="../.github/workflows/BuildAndRunTests.yml" />
+    <File Path="../.github/workflows/PublishIncrementalNuget.yml" />
+    <File Path="../.github/workflows/PublishNuget.yml" />
+    <File Path="../README.md" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="Tests/Iciclecreek.Azure.Storage.FileSystem.Tests/Iciclecreek.Azure.Storage.FileSystem.Tests.csproj" />
     <Project Path="Tests/Iciclecreek.Azure.Storage.Memory.Tests/Iciclecreek.Azure.Storage.Memory.Tests.csproj" />
