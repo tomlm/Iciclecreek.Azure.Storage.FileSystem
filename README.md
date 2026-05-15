@@ -18,21 +18,21 @@ Choose the backend that fits your scenario: in-memory for fast unit tests, files
 
 | Area | Memory | FileSystem | SQLite |
 |------|:------:|:----------:|:------:|
-| Block blobs (Upload, Download, Stage, Commit) | ✅ | Y | ✅ |
-| Append blobs (Create, Append) | ✅ | Y | ✅ |
-| Page blobs (Create, UploadPages, ClearPages) | ✅ | Y | ✅ |
-| Blob containers (CRUD, Listing, Hierarchy) | ✅ | Y | ✅ |
-| Blob metadata, HTTP headers, tags | ✅ | Y | ✅ |
-| ETag concurrency (IfMatch / IfNoneMatch) | ✅ | Y | ✅ |
-| Blob leases and container leases | ✅ | Y | ✅ |
-| Blob copy (StartCopyFromUri, SyncCopyFromUri) | ✅ | Y | ✅ |
-| Blob OpenRead / OpenWrite streaming | ✅ | Y | ✅ |
-| Blob snapshots and versions | ✅ | Y | ✅ |
-| Tables (CRUD, Upsert, Merge, Replace) | ✅ | Y | ✅ |
-| Table OData queries and LINQ expressions | ✅ | Y | ✅ |
-| Table transactions with rollback | ✅ | Y | ✅ |
-| Queues (CRUD, Send, Receive, Peek, Delete) | ✅ | Y | ✅ |
-| Queue visibility timeout and TTL | ✅ | Y | ✅ |
+| Block blobs (Upload, Download, Stage, Commit) | ✅ | ✅ | ✅ |
+| Append blobs (Create, Append) | ✅ | ✅ | ✅ |
+| Page blobs (Create, UploadPages, ClearPages) | ✅ | ✅ | ✅ |
+| Blob containers (CRUD, Listing, Hierarchy) | ✅ | ✅ | ✅ |
+| Blob metadata, HTTP headers, tags | ✅ | ✅ | ✅ |
+| ETag concurrency (IfMatch / IfNoneMatch) | ✅ | ✅ | ✅ |
+| Blob leases and container leases | ✅ | ✅ | ✅ |
+| Blob copy (StartCopyFromUri, SyncCopyFromUri) | ✅ | ✅ | ✅ |
+| Blob OpenRead / OpenWrite streaming | ✅ | ✅ | ✅ |
+| Blob snapshots and versions | ✅ | ✅ | ✅ |
+| Tables (CRUD, Upsert, Merge, Replace) | ✅ | ✅ | ✅ |
+| Table OData queries and LINQ expressions | ✅ | ✅ | ✅ |
+| Table transactions with rollback | ✅ | ✅ | ✅ |
+| Queues (CRUD, Send, Receive, Peek, Delete) | ✅ | ✅ | ✅ |
+| Queue visibility timeout and TTL | ✅ | ✅ | ✅ |
 
 ## Quick Start
 
