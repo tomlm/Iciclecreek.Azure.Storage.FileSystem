@@ -1,11 +1,11 @@
-namespace Iciclecreek.Azure.Storage.SQLite.Internal;
+namespace Iciclecreek.Azure.Storage.Internal;
 
 internal static class StorageUriParser
 {
     public static string? ExtractAccountName(Uri uri, string hostnameSuffix)
     {
         var host = uri.Host;
-        // Expected format: {accountName}.blob.{hostnameSuffix}
+
         var blobSuffix = $".blob.{hostnameSuffix}";
         if (host.EndsWith(blobSuffix, StringComparison.OrdinalIgnoreCase))
             return host[..^blobSuffix.Length];
@@ -24,9 +24,12 @@ internal static class StorageUriParser
     public static (string AccountName, string ContainerName, string? BlobName) ParseBlobUri(Uri uri, string hostnameSuffix)
     {
         var accountName = ExtractAccountName(uri, hostnameSuffix)
-            ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(uri));
+            ?? throw new ArgumentException($"Cannot determine account name from URI: {uri}", nameof(uri));
 
         var path = uri.AbsolutePath.TrimStart('/');
+        if (string.IsNullOrEmpty(path))
+            throw new ArgumentException("URI must include a container name.", nameof(uri));
+
         var slashIndex = path.IndexOf('/');
         if (slashIndex < 0)
             return (accountName, path, null);
@@ -34,5 +37,18 @@ internal static class StorageUriParser
         var container = path[..slashIndex];
         var blob = Uri.UnescapeDataString(path[(slashIndex + 1)..]);
         return (accountName, container, string.IsNullOrEmpty(blob) ? null : blob);
+    }
+
+    public static (string AccountName, string TableName) ParseTableUri(Uri uri, string hostnameSuffix)
+    {
+        var accountName = ExtractAccountName(uri, hostnameSuffix)
+            ?? throw new ArgumentException($"Cannot determine account name from URI: {uri}", nameof(uri));
+
+        var path = uri.AbsolutePath.TrimStart('/');
+        if (string.IsNullOrEmpty(path))
+            throw new ArgumentException("URI must include a table name.", nameof(uri));
+
+        var slash = path.IndexOf('/');
+        return (accountName, slash < 0 ? path : path[..slash]);
     }
 }

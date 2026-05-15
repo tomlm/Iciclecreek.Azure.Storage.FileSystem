@@ -30,7 +30,7 @@ public class FileTableClient : TableClient
     /// <param name="provider">The filesystem storage provider that manages account root paths.</param>
     public FileTableClient(Uri tableUri, FileStorageProvider provider) : base()
     {
-        var (acctName, table) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseTableUri(tableUri, provider.HostnameSuffix);
+        var (acctName, table) = StorageUriParser.ParseTableUri(tableUri, provider.HostnameSuffix);
         _account = provider.GetAccount(acctName);
         _store = new TableStore(_account, table);
     }

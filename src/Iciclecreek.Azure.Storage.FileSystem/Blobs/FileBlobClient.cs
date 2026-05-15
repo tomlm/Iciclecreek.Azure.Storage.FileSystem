@@ -32,7 +32,7 @@ public class FileBlobClient : BlobClient
     /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlobClient(Uri blobUri, FileStorageProvider provider) : base()
     {
-        var (acctName, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
+        var (acctName, container, blob) = StorageUriParser.ParseBlobUri(blobUri, provider.HostnameSuffix);
         _account = provider.GetAccount(acctName);
         _store = new BlobStore(_account, container);
         _blobName = blob ?? throw new ArgumentException("URI must include a blob name.", nameof(blobUri));
@@ -557,10 +557,10 @@ public class FileBlobClient : BlobClient
     {
         // Try to resolve as a local blob within this provider.
         Stream sourceStream;
-        var acctName = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
+        var acctName = StorageUriParser.ExtractAccountName(source, _account.Provider.HostnameSuffix);
         if (acctName is not null && _account.Provider.TryGetAccount(acctName, out var srcAccount) && srcAccount is not null)
         {
-            var (_, container, blob) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
+            var (_, container, blob) = StorageUriParser.ParseBlobUri(source, _account.Provider.HostnameSuffix);
             var srcStore = new BlobStore(srcAccount, container);
             var srcPath = srcStore.BlobPath(blob!);
             if (!File.Exists(srcPath))

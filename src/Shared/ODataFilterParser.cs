@@ -1,6 +1,6 @@
 using Azure.Data.Tables;
 
-namespace Iciclecreek.Azure.Storage.FileSystem.Tables.Internal;
+namespace Iciclecreek.Azure.Storage.Internal;
 
 internal static class ODataFilterParser
 {

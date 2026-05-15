@@ -28,7 +28,7 @@ public class FileBlobContainerClient : BlobContainerClient
     /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlobContainerClient(Uri containerUri, FileStorageProvider provider) : base()
     {
-        var (acctName, container, _) = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ParseBlobUri(containerUri, provider.HostnameSuffix);
+        var (acctName, container, _) = StorageUriParser.ParseBlobUri(containerUri, provider.HostnameSuffix);
         _account = provider.GetAccount(acctName);
         _store = new BlobStore(_account, container);
     }

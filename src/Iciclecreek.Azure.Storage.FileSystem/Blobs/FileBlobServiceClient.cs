@@ -23,7 +23,7 @@ public class FileBlobServiceClient : BlobServiceClient
     /// <param name="provider">The <see cref="FileStorageProvider"/> that resolves accounts.</param>
     public FileBlobServiceClient(Uri serviceUri, FileStorageProvider provider) : base()
     {
-        var name = Iciclecreek.Azure.Storage.FileSystem.Internal.StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
+        var name = StorageUriParser.ExtractAccountName(serviceUri, provider.HostnameSuffix)
             ?? throw new ArgumentException("Cannot determine account name from URI.", nameof(serviceUri));
         _account = provider.GetAccount(name);
     }

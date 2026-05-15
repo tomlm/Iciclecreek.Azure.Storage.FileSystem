@@ -2,7 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Azure;
 using Azure.Core;
 
-namespace Iciclecreek.Azure.Storage.SQLite.Internal;
+namespace Iciclecreek.Azure.Storage.Internal;
 
 internal sealed class StubResponse : Response
 {
