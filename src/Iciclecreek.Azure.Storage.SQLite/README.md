@@ -1,0 +1,86 @@
+# Iciclecreek.Azure.Storage.SQLite
+
+A **SQLite-backed drop-in replacement** for `Azure.Storage.Blobs`, `Azure.Data.Tables`, and `Azure.Storage.Queues` clients. Use the same Azure SDK types in tests and local development without Azurite or a live Azure account.
+
+Each storage account is a single `.db` file -- portable, atomic, and easy to manage.
+
+## Installation
+
+```
+dotnet add package Iciclecreek.Azure.Storage.SQLite
+```
+
+## Usage
+
+### Create a provider and account
+
+```csharp
+using Iciclecreek.Azure.Storage.SQLite;
+using Iciclecreek.Azure.Storage.SQLite.Blobs;
+using Iciclecreek.Azure.Storage.SQLite.Tables;
+using Iciclecreek.Azure.Storage.SQLite.Queues;
+
+var provider = new SqliteStorageProvider(@"C:\temp\my-storage");
+var account  = provider.AddAccount("devaccount"); // creates devaccount.db
+```
+
+### Blobs
+
+```csharp
+BlobContainerClient container = SqliteBlobContainerClient.FromAccount(account, "my-container");
+await container.CreateIfNotExistsAsync();
+
+BlobClient blob = container.GetBlobClient("hello.txt");
+await blob.UploadAsync(BinaryData.FromString("Hello, World!"));
+
+var result = (await blob.DownloadContentAsync()).Value;
+Console.WriteLine(result.Content.ToString()); // "Hello, World!"
+```
+
+### Tables
+
+```csharp
+TableClient table = SqliteTableClient.FromAccount(account, "people");
+await table.CreateIfNotExistsAsync();
+
+await table.AddEntityAsync(new TableEntity("users", "alice") { ["Name"] = "Alice" });
+var entity = (await table.GetEntityAsync<TableEntity>("users", "alice")).Value;
+```
+
+### Queues
+
+```csharp
+QueueClient queue = SqliteQueueClient.FromAccount(account, "tasks");
+queue.Create();
+
+queue.SendMessage("do the thing");
+var msg = queue.ReceiveMessage().Value;
+Console.WriteLine(msg.Body.ToString()); // "do the thing"
+```
+
+### Swap in via dependency injection
+
+Every `Sqlite*` client inherits from its Azure SDK base type:
+
+```csharp
+// Production
+services.AddSingleton<BlobContainerClient>(
+    new BlobContainerClient(connectionString, "images"));
+
+// Test
+var provider = new SqliteStorageProvider(testDir);
+var account  = provider.AddAccount("test");
+services.AddSingleton<BlobContainerClient>(
+    SqliteBlobContainerClient.FromAccount(account, "images"));
+```
+
+## Related Packages
+
+| Package | Description |
+|---------|-------------|
+| [Iciclecreek.Azure.Storage.FileSystem](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.FileSystem) | Filesystem-backed implementation (files on disk) |
+| [Iciclecreek.Azure.Storage.Server](https://www.nuget.org/packages/Iciclecreek.Azure.Storage.Server) | ASP.NET Core REST API server on top of any provider |
+
+## License
+
+MIT
